@@ -46,6 +46,26 @@ jobs:
           test -s "$binary"
           xcrun lipo "$binary" -verify_arch arm64 arm64e
 
+      - name: Research QuickActions DND implementation
+        run: |
+          set -euo pipefail
+          url="https://raw.githubusercontent.com/Cxs1125/cxs1125.github.io/6232ca47b0949eb609964c829593475c01bc0f13/debs/com.cameronkatri.quickactions_1.0.0-2_iphoneos-arm64.deb"
+          curl -L --fail --retry 3 "$url" -o "$RUNNER_TEMP/quickactions.deb"
+          rm -rf "$RUNNER_TEMP/quickactions"
+          mkdir -p "$RUNNER_TEMP/quickactions"
+          dpkg-deb -x "$RUNNER_TEMP/quickactions.deb" "$RUNNER_TEMP/quickactions"
+          echo "=== FILES ==="
+          find "$RUNNER_TEMP/quickactions" -type f -maxdepth 12 -print
+          echo "=== DYLIB STRINGS ==="
+          find "$RUNNER_TEMP/quickactions" -type f \( -name '*.dylib' -o -perm -111 \) -print0 | while IFS= read -r -d '' file; do
+            echo "--- $file ---"
+            strings -a "$file" | grep -Ei 'disturb|dnd|focus|quick|accessory|title|label|notification|cover|action|toggle|localized|status|banner' || true
+            echo "=== OTOOL OBJC $file ==="
+            otool -ov "$file" | grep -Ei -C 3 'disturb|dnd|focus|quick|accessory|title|label|notification|cover|action|toggle|localized|status|banner' || true
+            echo "=== NM $file ==="
+            nm -m "$file" | grep -Ei 'disturb|dnd|focus|quick|accessory|title|label|notification|cover|action|toggle|localized|status|banner' || true
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: LockscreenBrightnessSlider16-rootless
