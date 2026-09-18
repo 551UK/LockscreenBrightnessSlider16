@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>entry</key>
+    <dict>
+        <key>bundle</key>
+        <string>LockscreenBrightnessSlider16Prefs</string>
+        <key>bundlePath</key>
+        <string>/var/jb/Library/PreferenceBundles/LockscreenBrightnessSlider16Prefs.bundle</string>
+        <key>cell</key>
+        <string>PSLinkCell</string>
+        <key>detail</key>
+        <string>LSBSRootListController</string>
+        <key>icon</key>
+        <string>LockscreenBrightnessSlider16.png</string>
+        <key>isController</key>
+        <true/>
+        <key>label</key>
+        <string>Lockscreen Brightness Slider 16</string>
+    </dict>
+</dict>
+</plist>
