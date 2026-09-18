@@ -54,17 +54,35 @@ jobs:
           rm -rf "$RUNNER_TEMP/quickactions"
           mkdir -p "$RUNNER_TEMP/quickactions"
           dpkg-deb -x "$RUNNER_TEMP/quickactions.deb" "$RUNNER_TEMP/quickactions"
-          echo "=== FILES ==="
-          find "$RUNNER_TEMP/quickactions" -type f -maxdepth 12 -print
-          echo "=== DYLIB STRINGS ==="
-          find "$RUNNER_TEMP/quickactions" -type f \( -name '*.dylib' -o -perm -111 \) -print0 | while IFS= read -r -d '' file; do
-            echo "--- $file ---"
-            strings -a "$file" | grep -Ei 'disturb|dnd|focus|quick|accessory|title|label|notification|cover|action|toggle|localized|status|banner' || true
-            echo "=== OTOOL OBJC $file ==="
-            otool -ov "$file" | grep -Ei -C 3 'disturb|dnd|focus|quick|accessory|title|label|notification|cover|action|toggle|localized|status|banner' || true
-            echo "=== NM $file ==="
-            nm -m "$file" | grep -Ei 'disturb|dnd|focus|quick|accessory|title|label|notification|cover|action|toggle|localized|status|banner' || true
-          done
+          dylib="$RUNNER_TEMP/quickactions/var/jb/Library/MobileSubstrate/DynamicLibraries/QuickActions.dylib"
+
+          echo "=== ALL STRINGS ==="
+          strings -a "$dylib"
+
+          echo "=== OBJC METADATA AROUND CATEGORIES / DND METHODS ==="
+          otool -ov "$dylib" > "$RUNNER_TEMP/qa-objc.txt"
+          python3 - "$RUNNER_TEMP/qa-objc.txt" <<'PY'
+          import sys
+          lines=open(sys.argv[1], errors='replace').read().splitlines()
+          needles=('objc_catlist','__Actions','setDoNotDisturb:','updateDND:','stateService:didReceiveDoNotDisturbStateUpdate:','CSQuickActions')
+          hits=sorted({i for i,l in enumerate(lines) if any(n in l for n in needles)})
+          blocks=[]
+          for i in hits:
+              a=max(0,i-55); b=min(len(lines),i+70)
+              if blocks and a<=blocks[-1][1]:
+                  blocks[-1]=(blocks[-1][0],max(blocks[-1][1],b))
+              else:
+                  blocks.append((a,b))
+          for a,b in blocks:
+              print(f'--- lines {a+1}-{b} ---')
+              print('\n'.join(lines[a:b]))
+          PY
+
+          echo "=== NM ALL RELEVANT ==="
+          nm -a -nm "$dylib" | grep -Ei 'logos|DND|disturb|quick|action|stateService|CSQuick' || true
+
+          echo "=== DISASSEMBLY CALLS / SYMBOLS ==="
+          otool -tvV "$dylib" | grep -Ei -C 12 'setDoNotDisturb|updateDND|stateService|CSQuick|DND|objc_msgSend' || true
 
       - uses: actions/upload-artifact@v4
         with:
