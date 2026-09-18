@@ -136,7 +136,8 @@ static BOOL LSBSIsFocusStatusLegibilityLabel(UIView *view) {
     return identifier.length > 0 && [identifier hasPrefix:@"focus-text-"];
 }
 
-static void LSBSHideFocusStatusLabelInTree(UIView *view) {
+static void LSBSHideFocusStatusLabelInTree(id viewObject) {
+    UIView *view = (UIView *)viewObject;
     if (!view) return;
 
     if ([NSStringFromClass([view class]) isEqualToString:@"SBUILegibilityLabel"] &&
