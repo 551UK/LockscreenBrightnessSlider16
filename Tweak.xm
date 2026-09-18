@@ -132,65 +132,27 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 @end
 
 
-static CSQuickActionsView *LSBSFindQuickActionsView(UIView *view) {
-    if (!view) return nil;
 
-    Class quickActionsClass = NSClassFromString(@"CSQuickActionsView");
-    if (quickActionsClass && [view isKindOfClass:quickActionsClass]) {
-        return (CSQuickActionsView *)view;
-    }
+static const void *LSBSDNDLabelMarkerKey = &LSBSDNDLabelMarkerKey;
 
-    for (UIView *subview in view.subviews) {
-        CSQuickActionsView *found = LSBSFindQuickActionsView(subview);
-        if (found) return found;
-    }
-
-    return nil;
+static BOOL LSBSStringIsDND(NSString *string) {
+    return [string isEqualToString:@"Do Not Disturb"];
 }
 
-static BOOL LSBSLabelIsDNDText(UILabel *label) {
-    if (!label) return NO;
-
-    NSString *plainText = label.text;
-    if ([plainText isEqualToString:@"Do Not Disturb"]) return YES;
-
-    NSString *attributedText = label.attributedText.string;
-    return [attributedText isEqualToString:@"Do Not Disturb"];
+static BOOL LSBSLabelIsMarkedDND(UILabel *label) {
+    return [objc_getAssociatedObject(label, LSBSDNDLabelMarkerKey) boolValue];
 }
 
-static void LSBSHideDNDQuickActionsLabelIfNeeded(UILabel *label) {
-    if (!LSBSHideFocusBanner || !LSBSLabelIsDNDText(label)) return;
+static void LSBSUpdateDNDLabelMarker(UILabel *label, NSString *string) {
+    BOOL shouldHide = LSBSHideFocusBanner && LSBSStringIsDND(string);
+    objc_setAssociatedObject(label,
+                             LSBSDNDLabelMarkerKey,
+                             @(shouldHide),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-    UIWindow *window = label.window;
-    if (!window) return;
-
-    CSQuickActionsView *quickActions = LSBSFindQuickActionsView(window);
-    if (!quickActions) return;
-
-    UIView *flashlight = quickActions.flashlightButton;
-    UIView *camera = quickActions.cameraButton;
-    if (!flashlight || !camera) return;
-
-    CGRect flashlightRect = [flashlight convertRect:flashlight.bounds toView:quickActions];
-    CGRect cameraRect = [camera convertRect:camera.bounds toView:quickActions];
-
-    CGFloat leftCenter = MIN(CGRectGetMidX(flashlightRect), CGRectGetMidX(cameraRect));
-    CGFloat rightCenter = MAX(CGRectGetMidX(flashlightRect), CGRectGetMidX(cameraRect));
-    CGFloat buttonsCenterY = (CGRectGetMidY(flashlightRect) + CGRectGetMidY(cameraRect)) * 0.5;
-
-    CGPoint centerInWindow = [label.superview convertPoint:label.center toView:window];
-    CGPoint centerInQuickActions = [window convertPoint:centerInWindow toView:quickActions];
-
-    BOOL horizontallyBetweenButtons =
-        centerInQuickActions.x > leftCenter &&
-        centerInQuickActions.x < rightCenter;
-
-    BOOL verticallyInQuickActionsBand =
-        fabs(centerInQuickActions.y - buttonsCenterY) < 110.0;
-
-    if (horizontallyBetweenButtons && verticallyInQuickActionsBand) {
-        label.hidden = YES;
-        label.alpha = 0.0;
+    if (shouldHide) {
+        [label setHidden:YES];
+        [label setAlpha:0.0];
     }
 }
 
@@ -198,30 +160,28 @@ static void LSBSHideDNDQuickActionsLabelIfNeeded(UILabel *label) {
 
 - (void)setText:(NSString *)text {
     %orig;
-    if ([text isEqualToString:@"Do Not Disturb"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LSBSHideDNDQuickActionsLabelIfNeeded(self);
-        });
-    }
+    LSBSUpdateDNDLabelMarker(self, text);
 }
 
 - (void)setAttributedText:(NSAttributedString *)attributedText {
     %orig;
-    if ([attributedText.string isEqualToString:@"Do Not Disturb"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            LSBSHideDNDQuickActionsLabelIfNeeded(self);
-        });
+    LSBSUpdateDNDLabelMarker(self, attributedText.string);
+}
+
+- (void)setHidden:(BOOL)hidden {
+    if (LSBSLabelIsMarkedDND(self)) {
+        %orig(YES);
+        return;
     }
+    %orig(hidden);
 }
 
-- (void)didMoveToWindow {
-    %orig;
-    LSBSHideDNDQuickActionsLabelIfNeeded(self);
-}
-
-- (void)layoutSubviews {
-    %orig;
-    LSBSHideDNDQuickActionsLabelIfNeeded(self);
+- (void)setAlpha:(CGFloat)alpha {
+    if (LSBSLabelIsMarkedDND(self)) {
+        %orig(0.0);
+        return;
+    }
+    %orig(alpha);
 }
 
 %end
