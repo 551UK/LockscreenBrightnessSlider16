@@ -5,14 +5,14 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>LockscreenBrightnessSun16Prefs</string>
+    <string>LockscreenBrightnessGlyph16Prefs</string>
     <key>CFBundleIconFile</key>
-    <string>BrightnessSun16.png</string>
+    <string>BrightnessGlyph16.png</string>
     <key>CFBundleIconFiles</key>
     <array>
-        <string>BrightnessSun16.png</string>
-        <string>BrightnessSun16@2x.png</string>
-        <string>BrightnessSun16@3x.png</string>
+        <string>BrightnessGlyph16.png</string>
+        <string>BrightnessGlyph16@2x.png</string>
+        <string>BrightnessGlyph16@3x.png</string>
     </array>
     <key>CFBundleIdentifier</key>
     <string>com.551.lockscreenbrightnessslider16.preferences</string>
@@ -23,9 +23,9 @@
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.6</string>
+    <string>1.0.7</string>
     <key>CFBundleVersion</key>
-    <string>1.0.6</string>
+    <string>1.0.7</string>
     <key>NSPrincipalClass</key>
     <string>LSBSRootListController</string>
 </dict>
