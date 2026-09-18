@@ -128,34 +128,85 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-@interface _FCActivity : NSObject
+@interface LSBSFocusActivityProxy : NSProxy {
+    id _target;
+}
++ (instancetype)proxyWithTarget:(id)target;
 - (NSString *)activityDisplayName;
 @end
 
-/*
- * The Lock Screen Focus indicator obtains its visible text directly from
- * _FCActivity::activityDisplayName. Return an empty display name only when
- * CoverSheet is the caller. This leaves the Focus object/state untouched and
- * preserves the real name for FocusUI/Control Centre and other processes.
- */
-%hook _FCActivity
+@implementation LSBSFocusActivityProxy
+
++ (instancetype)proxyWithTarget:(id)target {
+    LSBSFocusActivityProxy *proxy = [LSBSFocusActivityProxy alloc];
+    proxy->_target = target;
+    return proxy;
+}
 
 - (NSString *)activityDisplayName {
-    NSString *name = %orig;
+    return @"";
+}
 
-    void *caller = __builtin_return_address(0);
-    Dl_info info;
-    memset(&info, 0, sizeof(info));
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)selector {
+    return [_target methodSignatureForSelector:selector];
+}
 
-    if (caller && dladdr(caller, &info) && info.dli_fname) {
-        NSString *imagePath = [NSString stringWithUTF8String:info.dli_fname];
+- (void)forwardInvocation:(NSInvocation *)invocation {
+    [invocation invokeWithTarget:_target];
+}
 
-        if ([imagePath.lastPathComponent isEqualToString:@"CoverSheet"]) {
-            return @"";
-        }
+- (BOOL)respondsToSelector:(SEL)selector {
+    return selector == @selector(activityDisplayName) || [_target respondsToSelector:selector];
+}
+
+- (Class)class {
+    return [_target class];
+}
+
+- (BOOL)isKindOfClass:(Class)aClass {
+    return [_target isKindOfClass:aClass];
+}
+
+- (BOOL)isEqual:(id)object {
+    return [_target isEqual:object];
+}
+
+- (NSUInteger)hash {
+    return [_target hash];
+}
+
+- (NSString *)description {
+    return [_target description];
+}
+
+@end
+
+static void *LSBSFocusProxyAssociationKey = &LSBSFocusProxyAssociationKey;
+
+/*
+ * Only the Lock Screen's CSFocusActivityIndicator gets a rendering proxy.
+ * The real Focus object remains unchanged everywhere else. Apple still receives
+ * every symbol/color/identifier/lifetime property normally; only the display
+ * name returned to this one indicator is blank.
+ */
+%hook CSFocusActivityIndicator
+
+- (void)setActivity:(id)activity {
+    if (!activity) {
+        objc_setAssociatedObject(self,
+                                 LSBSFocusProxyAssociationKey,
+                                 nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        %orig(nil);
+        return;
     }
 
-    return name;
+    LSBSFocusActivityProxy *proxy = [LSBSFocusActivityProxy proxyWithTarget:activity];
+    objc_setAssociatedObject(self,
+                             LSBSFocusProxyAssociationKey,
+                             proxy,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    %orig(proxy);
 }
 
 %end
