@@ -125,6 +125,12 @@ static void LSBSSetSystemBrightness(CGFloat value) {
     }
 }
 
+@interface CSQuickActionsButton : UIControl
+- (NSString *)bundleID;
+- (void)setBundleID:(NSString *)bundleID;
+- (void)setLocalizedAccessoryTitle:(NSString *)title;
+@end
+
 @interface CSQuickActionsView : UIView
 @property (nonatomic, retain) UIView *cameraButton;
 @property (nonatomic, retain) UIView *flashlightButton;
@@ -445,34 +451,41 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:camera];
 }
 
-%hook NSNotificationCenter
+%hook CSQuickActionsButton
 
-- (void)postNotificationName:(NSNotificationName)name object:(id)object {
-    /*
-     * QuickActions toggles DND itself, then posts the legacy
-     * SBQuietModeStatusChangedNotification. On this setup that notification
-     * is what triggers the temporary bottom-centre "Do Not Disturb" text.
-     *
-     * Suppress ONLY that exact notification when it is posted directly by
-     * QuickActions.dylib. The DND assertion has already been changed, so the
-     * actual Focus state and the quick-action button remain untouched.
-     */
+- (void)setBundleID:(NSString *)bundleID {
+    %orig;
+
     if (LSBSHideFocusBanner &&
-        [name isEqualToString:@"SBQuietModeStatusChangedNotification"]) {
-        void *caller = __builtin_return_address(0);
-        Dl_info info;
-        memset(&info, 0, sizeof(info));
+        [bundleID isEqualToString:@"com.apple.donotdisturb"]) {
+        [self setLocalizedAccessoryTitle:@" "];
+    }
+}
 
-        if (caller && dladdr(caller, &info) && info.dli_fname) {
-            NSString *imagePath = [NSString stringWithUTF8String:info.dli_fname];
+- (void)setLocalizedAccessoryTitle:(NSString *)title {
+    NSString *bundleID = nil;
 
-            if ([imagePath.lastPathComponent isEqualToString:@"QuickActions.dylib"]) {
-                return;
-            }
-        }
+    if ([self respondsToSelector:@selector(bundleID)]) {
+        bundleID = [self bundleID];
+    }
+
+    if (LSBSHideFocusBanner &&
+        [bundleID isEqualToString:@"com.apple.donotdisturb"]) {
+        %orig(@" ");
+        return;
     }
 
     %orig;
+}
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (LSBSHideFocusBanner &&
+        [self respondsToSelector:@selector(bundleID)] &&
+        [[self bundleID] isEqualToString:@"com.apple.donotdisturb"]) {
+        [self setLocalizedAccessoryTitle:@" "];
+    }
 }
 
 %end
