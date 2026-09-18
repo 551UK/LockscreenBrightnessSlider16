@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 #import <math.h>
 #import <dlfcn.h>
 
@@ -11,82 +10,13 @@ static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscree
 static BOOL LSBSTweakEnabled = YES;
 static BOOL LSBSHideFocusBanner = YES;
 
-@interface UICoverSheetButton : UIControl
-@property (nonatomic, copy) NSString *localizedAccessoryTitle;
-@end
-
-static BOOL LSBSIsDoNotDisturbTitle(NSString *title) {
-    if (![title isKindOfClass:NSString.class]) return NO;
-    NSString *trimmed = [title stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return [trimmed isEqualToString:@"Do Not Disturb"];
-}
-
-
-static void (*LSBSOriginalFocusIndicatorUpdate)(id, SEL) = NULL;
-
-static void LSBSFocusIndicatorUpdateHook(id self, SEL _cmd) {
-    if (LSBSOriginalFocusIndicatorUpdate) {
-        LSBSOriginalFocusIndicatorUpdate(self, _cmd);
-    }
-
-    if (LSBSHideFocusBanner &&
-        [self respondsToSelector:@selector(localizedAccessoryTitle)] &&
-        [self respondsToSelector:@selector(setLocalizedAccessoryTitle:)]) {
-        NSString *title = ((id (*)(id, SEL))objc_msgSend)(self,
-                                                          @selector(localizedAccessoryTitle));
-        if (LSBSIsDoNotDisturbTitle(title)) {
-            ((void (*)(id, SEL, id))objc_msgSend)(self,
-                                                  @selector(setLocalizedAccessoryTitle:),
-                                                  @" ");
-        }
-    }
-}
-
-static void LSBSInstallCoverSheetFocusTitleHook(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        dlopen("/System/Library/PrivateFrameworks/CoverSheet.framework/CoverSheet",
-               RTLD_LAZY | RTLD_GLOBAL);
-
-        Class cls = objc_getClass("CSFocusActivityIndicator");
-        SEL sel = NSSelectorFromString(@"_updateForActivity");
-        Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
-        if (!method) return;
-
-        LSBSOriginalFocusIndicatorUpdate =
-            (void (*)(id, SEL))method_getImplementation(method);
-        method_setImplementation(method, (IMP)LSBSFocusIndicatorUpdateHook);
-    });
-}
-
-static void LSBSApplyFocusTitlePreferenceToViewTree(UIView *view) {
-    if (!view) return;
-
-    Class coverSheetButtonClass = objc_getClass("UICoverSheetButton");
-    if (coverSheetButtonClass && [view isKindOfClass:coverSheetButtonClass]) {
-        UICoverSheetButton *button = (UICoverSheetButton *)view;
-
-        if (LSBSHideFocusBanner && LSBSIsDoNotDisturbTitle(button.localizedAccessoryTitle)) {
-            [button setLocalizedAccessoryTitle:@" "];
-        } else if (!LSBSHideFocusBanner) {
-            SEL updateSelector = NSSelectorFromString(@"_updateForActivity");
-            if ([button respondsToSelector:updateSelector]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                [button performSelector:updateSelector];
-#pragma clang diagnostic pop
-            }
-        }
-    }
-
-    [view setNeedsLayout];
-    for (UIView *subview in view.subviews) {
-        LSBSApplyFocusTitlePreferenceToViewTree(subview);
-    }
-}
-
 static void LSBSMarkViewTreeForLayout(UIView *view) {
-    LSBSApplyFocusTitlePreferenceToViewTree(view);
+    if (!view) return;
+    [view setNeedsLayout];
+
+    for (UIView *subview in view.subviews) {
+        LSBSMarkViewTreeForLayout(subview);
+    }
 }
 
 static void LSBSRefreshQuickActionsLayouts(void) {
@@ -130,7 +60,6 @@ __attribute__((constructor))
 static void LSBSInitialize(void) {
     @autoreleasepool {
         LSBSLoadPreferences();
-        LSBSInstallCoverSheetFocusTitleHook();
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
@@ -515,25 +444,15 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:camera];
 }
 
-%hook UICoverSheetButton
+%hook DNDNotificationsService
 
-- (void)setLocalizedAccessoryTitle:(NSString *)title {
-    if (LSBSHideFocusBanner && LSBSIsDoNotDisturbTitle(title)) {
-        %orig(@" ");
+- (void)_queue_postOrRemoveNotificationWithUpdatedBehavior:(BOOL)updatedBehavior
+                                     significantTimeChange:(BOOL)significantTimeChange {
+    if (LSBSHideFocusBanner) {
         return;
     }
 
     %orig;
-}
-
-- (NSString *)localizedAccessoryTitle {
-    NSString *title = %orig;
-
-    if (LSBSHideFocusBanner && LSBSIsDoNotDisturbTitle(title)) {
-        return @" ";
-    }
-
-    return title;
 }
 
 %end
