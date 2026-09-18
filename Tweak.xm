@@ -128,53 +128,42 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-@protocol LSBSFocusActivityDescribing <NSObject>
-- (NSString *)activityDisplayName;
-@end
-
-@interface CSFocusActivityIndicator : UIControl
+@interface UICoverSheetButton : UIControl
 @property (nonatomic, copy) NSString *localizedAccessoryTitle;
-- (id<LSBSFocusActivityDescribing>)activity;
-- (void)_updateForActivity;
 @end
-
-static BOOL LSBSIsDoNotDisturbActivity(id<LSBSFocusActivityDescribing> activity) {
-    if (!activity || ![activity respondsToSelector:@selector(activityDisplayName)]) {
-        return NO;
-    }
-
-    NSString *name = [activity activityDisplayName];
-    return [name isEqualToString:@"Do Not Disturb"];
-}
 
 /*
- * The persistent Focus pill/text on the Lock Screen is owned by
- * CSFocusActivityIndicator. Do not interfere with Focus state, notifications,
- * assertions, or presentation/removal. Only replace DND's visible accessory
- * title with a zero-width string.
+ * CSFocusActivityIndicator inherits localizedAccessoryTitle from
+ * UICoverSheetButton. Hook the class that actually implements the setter,
+ * but change text only when the receiver is the Focus indicator itself.
+ * No Focus state or notification lifecycle is touched.
  */
-%hook CSFocusActivityIndicator
+%hook UICoverSheetButton
 
 - (void)setLocalizedAccessoryTitle:(NSString *)title {
-    if ([title isEqualToString:@"Do Not Disturb"]) {
-        %orig(@"​");
+    Class focusIndicatorClass = NSClassFromString(@"CSFocusActivityIndicator");
+
+    if (focusIndicatorClass &&
+        [self isKindOfClass:focusIndicatorClass] &&
+        [title isEqualToString:@"Do Not Disturb"]) {
+        %orig(@"");
         return;
     }
 
     %orig;
 }
 
-- (void)_updateForActivity {
-    %orig;
+- (NSString *)localizedAccessoryTitle {
+    NSString *title = %orig;
+    Class focusIndicatorClass = NSClassFromString(@"CSFocusActivityIndicator");
 
-    id<LSBSFocusActivityDescribing> currentActivity = nil;
-    if ([self respondsToSelector:@selector(activity)]) {
-        currentActivity = [self activity];
+    if (focusIndicatorClass &&
+        [self isKindOfClass:focusIndicatorClass] &&
+        [title isEqualToString:@"Do Not Disturb"]) {
+        return @"";
     }
 
-    if (LSBSIsDoNotDisturbActivity(currentActivity)) {
-        [self setLocalizedAccessoryTitle:@"​"];
-    }
+    return title;
 }
 
 %end
