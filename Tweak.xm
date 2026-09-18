@@ -56,115 +56,41 @@ static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
     LSBSRefreshQuickActionsLayouts();
 }
 
-static void (*LSBSOriginalFocusBannerManagerPostActivity)(id, SEL, id, BOOL) = NULL;
-static void (*LSBSOriginalFocusSystemApertureManagerPostActivity)(id, SEL, id, BOOL) = NULL;
-static BOOL (*LSBSOriginalFocusShouldSuppressOnCoversheet)(id, SEL) = NULL;
-static void (*LSBSOriginalFocusLayoutTextViews)(id, SEL, id) = NULL;
+static CGRect LSBSQuickActionsTextRegion = {{0.0, 0.0}, {0.0, 0.0}};
 
-static void LSBSSetFocusElementTextHidden(id element, BOOL hidden) {
-    if (!element) return;
+static BOOL LSBSStringIsDoNotDisturb(NSString *text) {
+    if (![text isKindOfClass:NSString.class]) return NO;
 
-    const char *ivarNames[] = {
-        "_activityTitleLabel",
-        "_activityOnOffLabel",
-        "_onOffTrailingLabel"
-    };
-
-    for (NSUInteger i = 0; i < sizeof(ivarNames) / sizeof(ivarNames[0]); i++) {
-        Ivar ivar = class_getInstanceVariable([element class], ivarNames[i]);
-        if (!ivar) continue;
-
-        id value = object_getIvar(element, ivar);
-        if ([value isKindOfClass:UIView.class]) {
-            [(UIView *)value setHidden:hidden];
-        }
-    }
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [trimmed isEqualToString:@"Do Not Disturb"];
 }
 
-static void LSBSFocusBannerManagerPostActivityHook(id self, SEL _cmd, id activity, BOOL enabled) {
-    if (LSBSHideFocusBanner) {
-        return;
-    }
+static BOOL LSBSLabelIsInsideQuickActionsTextRegion(UILabel *label) {
+    if (!label || !label.window || CGRectIsEmpty(LSBSQuickActionsTextRegion)) return NO;
 
-    if (LSBSOriginalFocusBannerManagerPostActivity) {
-        LSBSOriginalFocusBannerManagerPostActivity(self, _cmd, activity, enabled);
-    }
+    CGRect screenRect = [label convertRect:label.bounds toView:nil];
+    return CGRectIntersectsRect(screenRect, LSBSQuickActionsTextRegion);
 }
 
-static void LSBSFocusSystemApertureManagerPostActivityHook(id self, SEL _cmd, id activity, BOOL enabled) {
-    if (LSBSHideFocusBanner) {
-        return;
-    }
-
-    if (LSBSOriginalFocusSystemApertureManagerPostActivity) {
-        LSBSOriginalFocusSystemApertureManagerPostActivity(self, _cmd, activity, enabled);
-    }
+static BOOL LSBSShouldBlankDoNotDisturbLabel(UILabel *label, NSString *text) {
+    return LSBSHideFocusBanner &&
+           LSBSStringIsDoNotDisturb(text) &&
+           LSBSLabelIsInsideQuickActionsTextRegion(label);
 }
 
-static BOOL LSBSFocusShouldSuppressOnCoversheetHook(id self, SEL _cmd) {
-    if (LSBSHideFocusBanner) {
-        return YES;
+static void LSBSBlankExistingDoNotDisturbTextInView(UIView *view) {
+    if (!view || !LSBSHideFocusBanner) return;
+
+    if ([view isKindOfClass:UILabel.class]) {
+        UILabel *label = (UILabel *)view;
+        if (LSBSShouldBlankDoNotDisturbLabel(label, label.text)) {
+            label.text = @" ";
+        }
     }
 
-    return LSBSOriginalFocusShouldSuppressOnCoversheet
-        ? LSBSOriginalFocusShouldSuppressOnCoversheet(self, _cmd)
-        : NO;
-}
-
-static void LSBSFocusLayoutTextViewsHook(id self, SEL _cmd, id containerView) {
-    if (LSBSOriginalFocusLayoutTextViews) {
-        LSBSOriginalFocusLayoutTextViews(self, _cmd, containerView);
+    for (UIView *subview in view.subviews) {
+        LSBSBlankExistingDoNotDisturbTextInView(subview);
     }
-
-    LSBSSetFocusElementTextHidden(self, LSBSHideFocusBanner);
-}
-
-static void LSBSInstallFocusBannerHook(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        dlopen("/System/Library/PrivateFrameworks/FocusUI.framework/FocusUI", RTLD_LAZY | RTLD_GLOBAL);
-
-        SEL postSelector = NSSelectorFromString(@"postActivity:enabled:");
-
-        Class bannerManagerClass = objc_getClass("FCUIFocusEnablementIndicatorBannerManager");
-        Method bannerPostMethod = bannerManagerClass
-            ? class_getInstanceMethod(bannerManagerClass, postSelector)
-            : NULL;
-        if (bannerPostMethod) {
-            LSBSOriginalFocusBannerManagerPostActivity =
-                (void (*)(id, SEL, id, BOOL))method_getImplementation(bannerPostMethod);
-            method_setImplementation(bannerPostMethod, (IMP)LSBSFocusBannerManagerPostActivityHook);
-        }
-
-        Class systemManagerClass = objc_getClass("FCUIFocusEnablementIndicatorSystemApertureManager");
-        Method systemPostMethod = systemManagerClass
-            ? class_getInstanceMethod(systemManagerClass, postSelector)
-            : NULL;
-        if (systemPostMethod) {
-            LSBSOriginalFocusSystemApertureManagerPostActivity =
-                (void (*)(id, SEL, id, BOOL))method_getImplementation(systemPostMethod);
-            method_setImplementation(systemPostMethod, (IMP)LSBSFocusSystemApertureManagerPostActivityHook);
-        }
-
-        Class elementClass = objc_getClass("FCUIFocusEnablementIndicatorSystemApertureElement");
-        if (!elementClass) return;
-
-        SEL suppressSelector = NSSelectorFromString(@"shouldSuppressElementWhileOnCoversheet");
-        Method suppressMethod = class_getInstanceMethod(elementClass, suppressSelector);
-        if (suppressMethod) {
-            LSBSOriginalFocusShouldSuppressOnCoversheet =
-                (BOOL (*)(id, SEL))method_getImplementation(suppressMethod);
-            method_setImplementation(suppressMethod, (IMP)LSBSFocusShouldSuppressOnCoversheetHook);
-        }
-
-        SEL layoutSelector = NSSelectorFromString(@"_layoutCustomTextViewsInContainerView:");
-        Method layoutMethod = class_getInstanceMethod(elementClass, layoutSelector);
-        if (layoutMethod) {
-            LSBSOriginalFocusLayoutTextViews =
-                (void (*)(id, SEL, id))method_getImplementation(layoutMethod);
-            method_setImplementation(layoutMethod, (IMP)LSBSFocusLayoutTextViewsHook);
-        }
-    });
 }
 
 __attribute__((constructor))
@@ -178,8 +104,6 @@ static void LSBSInitialize(void) {
                                         LSBSPrefsChangedNotification,
                                         NULL,
                                         CFNotificationSuspensionBehaviorDeliverImmediately);
-
-        LSBSInstallFocusBannerHook();
     }
 }
 
@@ -547,6 +471,35 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
                                              sliderWidth,
                                              sliderHeight));
 
+    /*
+     * Store the actual on-screen strip between the two Lock Screen quick
+     * actions. The optional DND-text setting only operates inside this region,
+     * so it does not alter Focus banners, Dynamic Island content, Control
+     * Centre, or the Focus state itself.
+     */
+    CGRect leftScreenRect = [host convertRect:leftRect toView:nil];
+    CGRect rightScreenRect = [host convertRect:rightRect toView:nil];
+
+    if (CGRectGetMidX(leftScreenRect) > CGRectGetMidX(rightScreenRect)) {
+        CGRect temporary = leftScreenRect;
+        leftScreenRect = rightScreenRect;
+        rightScreenRect = temporary;
+    }
+
+    CGFloat textRegionLeft = CGRectGetMaxX(leftScreenRect) - 6.0;
+    CGFloat textRegionRight = CGRectGetMinX(rightScreenRect) + 6.0;
+    CGFloat textRegionTop = MIN(CGRectGetMinY(leftScreenRect), CGRectGetMinY(rightScreenRect)) - 70.0;
+    CGFloat textRegionBottom = MAX(CGRectGetMaxY(leftScreenRect), CGRectGetMaxY(rightScreenRect)) + 70.0;
+
+    LSBSQuickActionsTextRegion = CGRectMake(textRegionLeft,
+                                            textRegionTop,
+                                            MAX(0.0, textRegionRight - textRegionLeft),
+                                            MAX(0.0, textRegionBottom - textRegionTop));
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LSBSBlankExistingDoNotDisturbTextInView(host.window);
+    });
+
     slider.hidden = NO;
     slider.brightnessValue = LSBSGetSystemBrightness();
     [slider installWindowPanIfNeeded];
@@ -556,6 +509,39 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:flashlight];
     [host bringSubviewToFront:camera];
 }
+
+%hook UILabel
+
+- (void)setText:(NSString *)text {
+    if (LSBSShouldBlankDoNotDisturbLabel(self, text)) {
+        %orig(@" ");
+        return;
+    }
+
+    %orig;
+}
+
+- (void)setAttributedText:(NSAttributedString *)attributedText {
+    NSString *plainText = attributedText.string;
+
+    if (LSBSShouldBlankDoNotDisturbLabel(self, plainText)) {
+        NSAttributedString *blank = [[NSAttributedString alloc] initWithString:@" "];
+        %orig(blank);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)layoutSubviews {
+    %orig;
+
+    if (LSBSShouldBlankDoNotDisturbLabel(self, self.text)) {
+        self.text = @" ";
+    }
+}
+
+%end
 
 %hook CSQuickActionsView
 
