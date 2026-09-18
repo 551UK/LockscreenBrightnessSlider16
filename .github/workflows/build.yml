@@ -46,26 +46,33 @@ jobs:
           test -s "$binary"
           xcrun lipo "$binary" -verify_arch arm64 arm64e
 
-      - name: Research QuickActions source
+      - name: Research NoFocusIndicatorOnLS implementation
         run: |
           set -euo pipefail
-          rm -rf "$RUNNER_TEMP/cameron-tweaks"
+          url="https://raw.githubusercontent.com/moj3ve/p2kdev.github.io-1/9a15cc7092a5955ddd039639eac7c7a9ed9ba858/repo/debs/com.p2kdev.nofocusindicatoronls_1.0_iphoneos-arm64.deb"
+          curl -L --fail --retry 3 "$url" -o "$RUNNER_TEMP/nofocus.deb"
+          rm -rf "$RUNNER_TEMP/nofocus"
+          mkdir -p "$RUNNER_TEMP/nofocus"
+          dpkg-deb -x "$RUNNER_TEMP/nofocus.deb" "$RUNNER_TEMP/nofocus"
 
-          echo "=== TRY SOURCE REPOSITORY ==="
-          if git clone --depth 1 --branch QuickActions https://git.cameronkatri.com/tweaks.git "$RUNNER_TEMP/cameron-tweaks"; then
-            echo "=== QUICKACTIONS SOURCE FILES ==="
-            find "$RUNNER_TEMP/cameron-tweaks" -maxdepth 4 -type f -print
-            echo "=== SOURCE ==="
-            find "$RUNNER_TEMP/cameron-tweaks" -type f \
-              \( -name '*.x' -o -name '*.xm' -o -name '*.m' -o -name '*.mm' -o -name '*.h' -o -name '*.swift' -o -name '*.plist' \) \
-              -maxdepth 6 -print0 | while IFS= read -r -d '' file; do
-                echo "----- $file -----"
-                cat "$file"
-              done
-          else
-            echo "Source clone failed"
-            exit 1
-          fi
+          echo "=== FILES ==="
+          find "$RUNNER_TEMP/nofocus" -type f -print
+
+          dylib="$(find "$RUNNER_TEMP/nofocus" -name '*.dylib' -type f | head -1)"
+          echo "=== DYLIB: $dylib ==="
+          echo "=== STRINGS ==="
+          strings -a "$dylib"
+          echo "=== OBJC ==="
+          otool -ov "$dylib"
+          echo "=== NM ==="
+          nm -a -nm "$dylib" || true
+          echo "=== DISASM ==="
+          otool -tvV "$dylib"
+          echo "=== FILTER / PLISTS ==="
+          find "$RUNNER_TEMP/nofocus" -type f -name '*.plist' -print0 | while IFS= read -r -d '' p; do
+            echo "--- $p ---"
+            plutil -p "$p" || cat "$p"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
