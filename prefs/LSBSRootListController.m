@@ -60,8 +60,8 @@ static BOOL LSBSSpawnTool(const char *tool, char * const argv[]) {
     [specifiers addObject:focusGroup];
 
     [specifiers addObject:[self preferenceSpecifierNamed:@"Hide Do Not Disturb Text"
-                                                     key:@"hideFocusBanner"
-                                            defaultValue:@NO
+                                                     key:@"hideDNDText"
+                                            defaultValue:@YES
                                                     cell:PSSwitchCell]];
 
     PSSpecifier *linksGroup = [PSSpecifier groupSpecifierWithName:@"Links"];
