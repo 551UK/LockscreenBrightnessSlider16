@@ -478,6 +478,22 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     %orig;
 }
 
+- (NSString *)localizedAccessoryTitle {
+    NSString *title = %orig;
+    NSString *bundleID = nil;
+
+    if ([self respondsToSelector:@selector(bundleID)]) {
+        bundleID = [self bundleID];
+    }
+
+    if (LSBSHideFocusBanner &&
+        [bundleID isEqualToString:@"com.apple.donotdisturb"]) {
+        return @" ";
+    }
+
+    return title;
+}
+
 - (void)layoutSubviews {
     %orig;
 
