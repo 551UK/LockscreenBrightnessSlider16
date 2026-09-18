@@ -10,13 +10,34 @@ static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscree
 static BOOL LSBSTweakEnabled = YES;
 static BOOL LSBSHideFocusBanner = NO;
 
-static void LSBSMarkViewTreeForLayout(UIView *view) {
+@interface CSFocusActivityIndicator : UIControl
+@property (nonatomic, retain) id activity;
+- (void)_updateForActivity;
+- (void)setLocalizedAccessoryTitle:(NSString *)title;
+@end
+
+static void LSBSApplyFocusTitlePreferenceToViewTree(UIView *view) {
     if (!view) return;
+
+    Class focusIndicatorClass = objc_getClass("CSFocusActivityIndicator");
+    if (focusIndicatorClass && [view isKindOfClass:focusIndicatorClass]) {
+        CSFocusActivityIndicator *indicator = (CSFocusActivityIndicator *)view;
+
+        if (LSBSHideFocusBanner) {
+            [indicator setLocalizedAccessoryTitle:@" "];
+        } else {
+            [indicator _updateForActivity];
+        }
+    }
 
     [view setNeedsLayout];
     for (UIView *subview in view.subviews) {
-        LSBSMarkViewTreeForLayout(subview);
+        LSBSApplyFocusTitlePreferenceToViewTree(subview);
     }
+}
+
+static void LSBSMarkViewTreeForLayout(UIView *view) {
+    LSBSApplyFocusTitlePreferenceToViewTree(view);
 }
 
 static void LSBSRefreshQuickActionsLayouts(void) {
@@ -54,43 +75,6 @@ static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
                                      CFDictionaryRef userInfo) {
     LSBSLoadPreferences();
     LSBSRefreshQuickActionsLayouts();
-}
-
-static CGRect LSBSQuickActionsTextRegion = {{0.0, 0.0}, {0.0, 0.0}};
-
-static BOOL LSBSStringIsDoNotDisturb(NSString *text) {
-    if (![text isKindOfClass:NSString.class]) return NO;
-
-    NSString *trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return [trimmed isEqualToString:@"Do Not Disturb"];
-}
-
-static BOOL LSBSLabelIsInsideQuickActionsTextRegion(UILabel *label) {
-    if (!label || !label.window || CGRectIsEmpty(LSBSQuickActionsTextRegion)) return NO;
-
-    CGRect screenRect = [label convertRect:label.bounds toView:nil];
-    return CGRectIntersectsRect(screenRect, LSBSQuickActionsTextRegion);
-}
-
-static BOOL LSBSShouldBlankDoNotDisturbLabel(UILabel *label, NSString *text) {
-    return LSBSHideFocusBanner &&
-           LSBSStringIsDoNotDisturb(text) &&
-           LSBSLabelIsInsideQuickActionsTextRegion(label);
-}
-
-static void LSBSBlankExistingDoNotDisturbTextInView(UIView *view) {
-    if (!view || !LSBSHideFocusBanner) return;
-
-    if ([view isKindOfClass:UILabel.class]) {
-        UILabel *label = (UILabel *)view;
-        if (LSBSShouldBlankDoNotDisturbLabel(label, label.text)) {
-            label.text = @" ";
-        }
-    }
-
-    for (UIView *subview in view.subviews) {
-        LSBSBlankExistingDoNotDisturbTextInView(subview);
-    }
 }
 
 __attribute__((constructor))
@@ -419,7 +403,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
         flashlight.hidden || camera.hidden ||
         flashlight.alpha < 0.01 || camera.alpha < 0.01) {
         if (slider) slider.hidden = YES;
-        LSBSQuickActionsTextRegion = CGRectZero;
         return;
     }
 
@@ -428,7 +411,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 
     if (CGRectIsEmpty(flashlightRect) || CGRectIsEmpty(cameraRect)) {
         if (slider) slider.hidden = YES;
-        LSBSQuickActionsTextRegion = CGRectZero;
         return;
     }
 
@@ -440,33 +422,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
         leftRect = rightRect;
         rightRect = temporary;
     }
-
-    /*
-     * Always calculate the physical area between the two Lock Screen buttons.
-     * This keeps the DND-text switch independent from the main slider switch.
-     */
-    CGRect leftScreenRect = [host convertRect:leftRect toView:nil];
-    CGRect rightScreenRect = [host convertRect:rightRect toView:nil];
-
-    if (CGRectGetMidX(leftScreenRect) > CGRectGetMidX(rightScreenRect)) {
-        CGRect temporary = leftScreenRect;
-        leftScreenRect = rightScreenRect;
-        rightScreenRect = temporary;
-    }
-
-    CGFloat textRegionLeft = CGRectGetMaxX(leftScreenRect) - 6.0;
-    CGFloat textRegionRight = CGRectGetMinX(rightScreenRect) + 6.0;
-    CGFloat textRegionTop = MIN(CGRectGetMinY(leftScreenRect), CGRectGetMinY(rightScreenRect)) - 70.0;
-    CGFloat textRegionBottom = MAX(CGRectGetMaxY(leftScreenRect), CGRectGetMaxY(rightScreenRect)) + 70.0;
-
-    LSBSQuickActionsTextRegion = CGRectMake(textRegionLeft,
-                                            textRegionTop,
-                                            MAX(0.0, textRegionRight - textRegionLeft),
-                                            MAX(0.0, textRegionBottom - textRegionTop));
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        LSBSBlankExistingDoNotDisturbTextInView(host.window);
-    });
 
     if (!LSBSTweakEnabled) {
         if (slider) slider.hidden = YES;
@@ -510,34 +465,13 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:camera];
 }
 
-%hook UILabel
+%hook CSFocusActivityIndicator
 
-- (void)setText:(NSString *)text {
-    if (LSBSShouldBlankDoNotDisturbLabel(self, text)) {
-        %orig(@" ");
-        return;
-    }
-
-    %orig;
-}
-
-- (void)setAttributedText:(NSAttributedString *)attributedText {
-    NSString *plainText = attributedText.string;
-
-    if (LSBSShouldBlankDoNotDisturbLabel(self, plainText)) {
-        NSAttributedString *blank = [[NSAttributedString alloc] initWithString:@" "];
-        %orig(blank);
-        return;
-    }
-
-    %orig;
-}
-
-- (void)layoutSubviews {
+- (void)_updateForActivity {
     %orig;
 
-    if (LSBSShouldBlankDoNotDisturbLabel(self, self.text)) {
-        self.text = @" ";
+    if (LSBSHideFocusBanner) {
+        [self setLocalizedAccessoryTitle:@" "];
     }
 }
 
