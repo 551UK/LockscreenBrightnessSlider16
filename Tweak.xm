@@ -11,6 +11,81 @@ static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscree
 static BOOL LSBSTweakEnabled = YES;
 static BOOL LSBSHideFocusBanner = YES;
 
+@protocol LSBSFCActivityDescribing <NSObject>
+- (NSString *)activityDisplayName;
+- (NSString *)activityIdentifier;
+@end
+
+@interface LSBSFocusEnablementIndicatorBannerPresentable : NSObject
+- (id<LSBSFCActivityDescribing>)activityDescription;
+@end
+
+@interface LSBSBNTemplateItemProvider : NSObject
+- (void)setHidden:(BOOL)hidden;
+@end
+
+static id (*LSBSOriginalFocusPrimaryTemplateItemProvider)(id, SEL) = NULL;
+
+static BOOL LSBSIsDoNotDisturbActivity(id<LSBSFCActivityDescribing> activity) {
+    if (!activity) return NO;
+
+    NSString *identifier = nil;
+    NSString *displayName = nil;
+
+    if ([activity respondsToSelector:@selector(activityIdentifier)]) {
+        identifier = [activity activityIdentifier];
+    }
+
+    if ([activity respondsToSelector:@selector(activityDisplayName)]) {
+        displayName = [activity activityDisplayName];
+    }
+
+    // Use Apple's stable DND activity identifier first; display name is only
+    // a fallback for builds where the identifier is exposed differently.
+    return [identifier isEqualToString:@"com.apple.donotdisturb.mode.default"] ||
+           [displayName isEqualToString:@"Do Not Disturb"];
+}
+
+static id LSBSFocusPrimaryTemplateItemProviderHook(id self, SEL _cmd) {
+    id provider = LSBSOriginalFocusPrimaryTemplateItemProvider
+        ? LSBSOriginalFocusPrimaryTemplateItemProvider(self, _cmd)
+        : nil;
+
+    if (!LSBSHideFocusBanner || !provider) {
+        return provider;
+    }
+
+    id<LSBSFCActivityDescribing> activity = nil;
+    if ([self respondsToSelector:@selector(activityDescription)]) {
+        activity = [(LSBSFocusEnablementIndicatorBannerPresentable *)self activityDescription];
+    }
+
+    if (LSBSIsDoNotDisturbActivity(activity) &&
+        [provider respondsToSelector:@selector(setHidden:)]) {
+        [(LSBSBNTemplateItemProvider *)provider setHidden:YES];
+    }
+
+    return provider;
+}
+
+static void LSBSInstallFocusBannerTextHook(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen("/System/Library/PrivateFrameworks/FocusUI.framework/FocusUI",
+                              RTLD_LAZY | RTLD_GLOBAL);
+        if (!handle) return;
+
+        Class cls = objc_getClass("FCUIFocusEnablementIndicatorBannerPresentable");
+        SEL selector = NSSelectorFromString(@"primaryTemplateItemProvider");
+        Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
+        if (!method) return;
+
+        LSBSOriginalFocusPrimaryTemplateItemProvider =
+            (id (*)(id, SEL))method_getImplementation(method);
+        method_setImplementation(method, (IMP)LSBSFocusPrimaryTemplateItemProviderHook);
+    });
+}
+
 static void LSBSMarkViewTreeForLayout(UIView *view) {
     if (!view) return;
     [view setNeedsLayout];
@@ -61,6 +136,7 @@ __attribute__((constructor))
 static void LSBSInitialize(void) {
     @autoreleasepool {
         LSBSLoadPreferences();
+        LSBSInstallFocusBannerTextHook();
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
@@ -124,12 +200,6 @@ static void LSBSSetSystemBrightness(CGFloat value) {
         UIScreen.mainScreen.brightness = value;
     }
 }
-
-@interface CSQuickActionsButton : UIControl
-- (NSString *)bundleID;
-- (void)setBundleID:(NSString *)bundleID;
-- (void)setLocalizedAccessoryTitle:(NSString *)title;
-@end
 
 @interface CSQuickActionsView : UIView
 @property (nonatomic, retain) UIView *cameraButton;
@@ -450,61 +520,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:flashlight];
     [host bringSubviewToFront:camera];
 }
-
-%hook CSQuickActionsButton
-
-- (void)setBundleID:(NSString *)bundleID {
-    %orig;
-
-    if (LSBSHideFocusBanner &&
-        [bundleID isEqualToString:@"com.apple.donotdisturb"]) {
-        [self setLocalizedAccessoryTitle:@" "];
-    }
-}
-
-- (void)setLocalizedAccessoryTitle:(NSString *)title {
-    NSString *bundleID = nil;
-
-    if ([self respondsToSelector:@selector(bundleID)]) {
-        bundleID = [self bundleID];
-    }
-
-    if (LSBSHideFocusBanner &&
-        [bundleID isEqualToString:@"com.apple.donotdisturb"]) {
-        %orig(@" ");
-        return;
-    }
-
-    %orig;
-}
-
-- (NSString *)localizedAccessoryTitle {
-    NSString *title = %orig;
-    NSString *bundleID = nil;
-
-    if ([self respondsToSelector:@selector(bundleID)]) {
-        bundleID = [self bundleID];
-    }
-
-    if (LSBSHideFocusBanner &&
-        [bundleID isEqualToString:@"com.apple.donotdisturb"]) {
-        return @" ";
-    }
-
-    return title;
-}
-
-- (void)layoutSubviews {
-    %orig;
-
-    if (LSBSHideFocusBanner &&
-        [self respondsToSelector:@selector(bundleID)] &&
-        [[self bundleID] isEqualToString:@"com.apple.donotdisturb"]) {
-        [self setLocalizedAccessoryTitle:@" "];
-    }
-}
-
-%end
 
 %hook CSQuickActionsView
 
