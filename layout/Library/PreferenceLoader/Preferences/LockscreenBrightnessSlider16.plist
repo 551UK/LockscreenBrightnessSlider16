@@ -13,7 +13,7 @@
         <key>detail</key>
         <string>LSBSRootListController</string>
         <key>icon</key>
-        <string>LockscreenBrightnessSlider16.png</string>
+        <string>BrightnessSlider16.png</string>
         <key>isController</key>
         <true/>
         <key>label</key>
