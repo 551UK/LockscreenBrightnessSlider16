@@ -9,7 +9,6 @@
 static CFStringRef const LSBSPrefsDomain = CFSTR("com.551.lockscreenbrightnessslider16");
 static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscreenbrightnessslider16/preferences.changed");
 static BOOL LSBSTweakEnabled = YES;
-static BOOL LSBSHideFocusBanner = YES;
 
 static void LSBSMarkViewTreeForLayout(UIView *view) {
     if (!view) return;
@@ -42,10 +41,6 @@ static void LSBSLoadPreferences(void) {
     CFPropertyListRef enabledValue = CFPreferencesCopyAppValue(CFSTR("enabled"), LSBSPrefsDomain);
     LSBSTweakEnabled = enabledValue ? [(__bridge id)enabledValue boolValue] : YES;
     if (enabledValue) CFRelease(enabledValue);
-
-    CFPropertyListRef hideFocusValue = CFPreferencesCopyAppValue(CFSTR("hideDNDText"), LSBSPrefsDomain);
-    LSBSHideFocusBanner = hideFocusValue ? [(__bridge id)hideFocusValue boolValue] : YES;
-    if (hideFocusValue) CFRelease(hideFocusValue);
 }
 
 static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
@@ -132,46 +127,6 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 @end
 
 
-
-@protocol LSBSFocusActivityDescribing <NSObject>
-- (NSString *)activityDisplayName;
-@end
-
-@interface CSFocusActivityIndicator : UIControl
-- (id<LSBSFocusActivityDescribing>)activity;
-- (void)setLocalizedAccessoryTitle:(NSString *)title;
-- (void)_updateForActivity;
-@end
-
-static BOOL LSBSIsDoNotDisturbFocus(id<LSBSFocusActivityDescribing> activity) {
-    if (!activity || ![activity respondsToSelector:@selector(activityDisplayName)]) {
-        return NO;
-    }
-
-    NSString *displayName = [activity activityDisplayName];
-    return [displayName isEqualToString:@"Do Not Disturb"];
-}
-
-%hook CSFocusActivityIndicator
-
-- (void)_updateForActivity {
-    %orig;
-
-    if (!LSBSHideFocusBanner) {
-        return;
-    }
-
-    id<LSBSFocusActivityDescribing> activity = nil;
-    if ([self respondsToSelector:@selector(activity)]) {
-        activity = [self activity];
-    }
-
-    if (LSBSIsDoNotDisturbFocus(activity)) {
-        [self setLocalizedAccessoryTitle:nil];
-    }
-}
-
-%end
 
 @interface LSBSBrightnessSlider : UIControl <UIGestureRecognizerDelegate> {
     UIView *_trackView;
