@@ -128,37 +128,97 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-@interface _FCActivity : NSObject
-- (NSString *)activityDisplayName;
-@end
+static BOOL LSBSViewIsInsideFocusIndicatorHierarchy(UIView *view) {
+    UIView *current = view;
 
-@interface CSFocusActivityIndicator : UIControl
-- (void)_updateForActivity;
-@end
+    while (current) {
+        NSString *className = NSStringFromClass([current class]);
 
-static __thread BOOL LSBSInsideFocusIndicatorUpdate = NO;
+        if ([className isEqualToString:@"CSFocusActivityView"] ||
+            [className isEqualToString:@"CSFocusActivityIndicator"]) {
+            return YES;
+        }
+
+        current = current.superview;
+    }
+
+    return NO;
+}
+
+static void LSBSBlankFocusLabelsInViewTree(UIView *view) {
+    if (!view) return;
+
+    if ([view isKindOfClass:[UILabel class]]) {
+        UILabel *label = (UILabel *)view;
+
+        if (LSBSViewIsInsideFocusIndicatorHierarchy(label)) {
+            if (label.text.length > 0) {
+                label.text = @"";
+            }
+
+            if (label.attributedText.length > 0) {
+                label.attributedText = [[NSAttributedString alloc] initWithString:@""];
+            }
+        }
+    }
+
+    for (UIView *subview in view.subviews) {
+        LSBSBlankFocusLabelsInViewTree(subview);
+    }
+}
 
 %group LSBSFocusNameHooks
 
-%hook CSFocusActivityIndicator
+%hook UILabel
 
-- (void)_updateForActivity {
-    BOOL previous = LSBSInsideFocusIndicatorUpdate;
-    LSBSInsideFocusIndicatorUpdate = YES;
+- (void)setText:(NSString *)text {
+    if (LSBSViewIsInsideFocusIndicatorHierarchy(self)) {
+        %orig(@"");
+        return;
+    }
+
     %orig;
-    LSBSInsideFocusIndicatorUpdate = previous;
+}
+
+- (void)setAttributedText:(NSAttributedString *)attributedText {
+    if (LSBSViewIsInsideFocusIndicatorHierarchy(self)) {
+        %orig([[NSAttributedString alloc] initWithString:@""]);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+
+    if (LSBSViewIsInsideFocusIndicatorHierarchy(self)) {
+        if (self.text.length > 0) {
+            self.text = @"";
+        }
+
+        if (self.attributedText.length > 0) {
+            self.attributedText = [[NSAttributedString alloc] initWithString:@""];
+        }
+    }
 }
 
 %end
 
-%hook _FCActivity
+%hook CSFocusActivityView
 
-- (NSString *)activityDisplayName {
-    if (LSBSInsideFocusIndicatorUpdate) {
-        return @"";
-    }
+- (void)layoutSubviews {
+    %orig;
+    LSBSBlankFocusLabelsInViewTree(self);
+}
 
-    return %orig;
+%end
+
+%hook CSFocusActivityIndicator
+
+- (void)layoutSubviews {
+    %orig;
+    LSBSBlankFocusLabelsInViewTree(self);
 }
 
 %end
@@ -537,7 +597,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 
 %ctor {
     @autoreleasepool {
-        dlopen("/System/Library/PrivateFrameworks/Focus.framework/Focus", RTLD_LAZY | RTLD_LOCAL);
         dlopen("/System/Library/PrivateFrameworks/CoverSheet.framework/CoverSheet", RTLD_LAZY | RTLD_LOCAL);
 
         %init;
