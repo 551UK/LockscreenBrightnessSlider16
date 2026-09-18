@@ -444,11 +444,30 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:camera];
 }
 
-%hook CSFocusActivityManager
+%hook NSNotificationCenter
 
-- (void)_updateFocusActivityIndicator {
-    if (LSBSHideFocusBanner) {
-        return;
+- (void)postNotificationName:(NSNotificationName)name object:(id)object {
+    /*
+     * QuickActions toggles DND itself, then posts the legacy
+     * SBQuietModeStatusChangedNotification. On this setup that notification
+     * is what triggers the temporary bottom-centre "Do Not Disturb" text.
+     *
+     * Suppress ONLY that exact notification when it is posted directly by
+     * QuickActions.dylib. The DND assertion has already been changed, so the
+     * actual Focus state and the quick-action button remain untouched.
+     */
+    if (LSBSHideFocusBanner &&
+        [name isEqualToString:@"SBQuietModeStatusChangedNotification"]) {
+        void *caller = __builtin_return_address(0);
+        Dl_info info = {0};
+
+        if (caller && dladdr(caller, &info) && info.dli_fname) {
+            NSString *imagePath = [NSString stringWithUTF8String:info.dli_fname];
+
+            if ([imagePath.lastPathComponent isEqualToString:@"QuickActions.dylib"]) {
+                return;
+            }
+        }
     }
 
     %orig;
