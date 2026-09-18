@@ -129,228 +129,42 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-static NSString *LSBSDiagnosticObjectString(id object, SEL selector) {
-    if (!object || ![object respondsToSelector:selector]) return nil;
+static BOOL LSBSIsFocusStatusLegibilityLabel(UIView *view) {
+    if (!view) return NO;
 
-    id value = ((id (*)(id, SEL))objc_msgSend)(object, selector);
-    if ([value isKindOfClass:[NSString class]]) {
-        return (NSString *)value;
-    }
-    if ([value isKindOfClass:[NSAttributedString class]]) {
-        return [(NSAttributedString *)value string];
-    }
-    return nil;
+    NSString *identifier = view.accessibilityIdentifier;
+    return identifier.length > 0 && [identifier hasPrefix:@"focus-text-"];
 }
 
-static NSString *LSBSSanitizeDiagnosticString(NSString *value) {
-    if (!value.length) return nil;
+static void LSBSHideFocusStatusLabelInTree(UIView *view) {
+    if (!view) return;
 
-    NSString *clean = [value stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
-    clean = [clean stringByReplacingOccurrencesOfString:@"\r" withString:@"\\r"];
-    if (clean.length > 300) {
-        clean = [[clean substringToIndex:300] stringByAppendingString:@"…"];
-    }
-    return clean;
-}
-
-static void LSBSDumpLayerTree(CALayer *layer,
-                              NSMutableString *output,
-                              NSUInteger depth) {
-    if (!layer || depth > 20) return;
-
-    NSString *indent = [@"" stringByPaddingToLength:(depth * 2)
-                                          withString:@" "
-                                     startingAtIndex:0];
-
-    NSString *layerClass = NSStringFromClass([layer class]);
-    NSString *extra = @"";
-
-    if ([layer isKindOfClass:[CATextLayer class]]) {
-        id stringValue = [(CATextLayer *)layer string];
-        NSString *text = nil;
-        if ([stringValue isKindOfClass:[NSString class]]) {
-            text = stringValue;
-        } else if ([stringValue isKindOfClass:[NSAttributedString class]]) {
-            text = [(NSAttributedString *)stringValue string];
-        }
-        text = LSBSSanitizeDiagnosticString(text);
-        if (text.length) {
-            extra = [NSString stringWithFormat:@" text=\"%@\"", text];
-        }
-    }
-
-    [output appendFormat:@"%@LAYER %@ frame=%@ bounds=%@ hidden=%d opacity=%.3f%@\n",
-                         indent,
-                         layerClass,
-                         NSStringFromCGRect(layer.frame),
-                         NSStringFromCGRect(layer.bounds),
-                         layer.hidden,
-                         layer.opacity,
-                         extra];
-
-    for (CALayer *sublayer in layer.sublayers) {
-        LSBSDumpLayerTree(sublayer, output, depth + 1);
-    }
-}
-
-static void LSBSDumpViewTree(UIView *view,
-                             UIWindow *window,
-                             NSMutableString *output,
-                             NSUInteger depth) {
-    if (!view || depth > 40) return;
-
-    NSString *indent = [@"" stringByPaddingToLength:(depth * 2)
-                                          withString:@" "
-                                     startingAtIndex:0];
-
-    CGRect windowFrame = CGRectZero;
-    @try {
-        windowFrame = [view convertRect:view.bounds toView:window];
-    } @catch (__unused NSException *exception) {
-        windowFrame = view.frame;
-    }
-
-    NSMutableArray<NSString *> *properties = [NSMutableArray array];
-
-    NSArray<NSString *> *selectorNames = @[
-        @"text",
-        @"attributedText",
-        @"currentTitle",
-        @"title",
-        @"localizedAccessoryTitle",
-        @"accessibilityLabel",
-        @"accessibilityValue",
-        @"accessibilityIdentifier"
-    ];
-
-    for (NSString *selectorName in selectorNames) {
-        SEL selector = NSSelectorFromString(selectorName);
-        NSString *value = nil;
-        @try {
-            value = LSBSDiagnosticObjectString(view, selector);
-        } @catch (__unused NSException *exception) {
-            value = nil;
-        }
-
-        value = LSBSSanitizeDiagnosticString(value);
-        if (value.length) {
-            [properties addObject:[NSString stringWithFormat:@"%@=\"%@\"", selectorName, value]];
-        }
-    }
-
-    NSString *propertyText = properties.count
-        ? [NSString stringWithFormat:@" %@", [properties componentsJoinedByString:@" "]]
-        : @"";
-
-    [output appendFormat:@"%@VIEW %@ <%p> winFrame=%@ frame=%@ bounds=%@ hidden=%d alpha=%.3f%@\n",
-                         indent,
-                         NSStringFromClass([view class]),
-                         view,
-                         NSStringFromCGRect(windowFrame),
-                         NSStringFromCGRect(view.frame),
-                         NSStringFromCGRect(view.bounds),
-                         view.hidden,
-                         view.alpha,
-                         propertyText];
-
-    if ([NSStringFromClass([view class]) rangeOfString:@"Focus" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-        properties.count > 0) {
-        LSBSDumpLayerTree(view.layer, output, depth + 1);
-    }
-
-    for (UIView *subview in view.subviews) {
-        LSBSDumpViewTree(subview, window, output, depth + 1);
-    }
-}
-
-static void LSBSDumpLockScreenHierarchy(void) {
-    UIApplication *application = UIApplication.sharedApplication;
-    NSMutableString *output = [NSMutableString string];
-
-    [output appendFormat:@"LockscreenBrightnessSlider16 diagnostic dump\n"];
-    [output appendFormat:@"Date: %@\n", [NSDate date]];
-    [output appendFormat:@"Screen bounds: %@\n\n", NSStringFromCGRect(UIScreen.mainScreen.bounds)];
-
-    NSUInteger windowIndex = 0;
-    for (UIScene *scene in application.connectedScenes) {
-        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-
-        UIWindowScene *windowScene = (UIWindowScene *)scene;
-        for (UIWindow *window in windowScene.windows) {
-            [output appendFormat:@"===== WINDOW %lu %@ level=%.1f hidden=%d alpha=%.3f =====\n",
-                                 (unsigned long)windowIndex++,
-                                 NSStringFromClass([window class]),
-                                 window.windowLevel,
-                                 window.hidden,
-                                 window.alpha];
-
-            LSBSDumpViewTree(window, window, output, 0);
-            [output appendString:@"\n"];
-        }
-    }
-
-    NSArray<NSString *> *paths = @[
-        @"/var/mobile/lsbs-focusdump.txt",
-        @"/var/mobile/Documents/lsbs-focusdump.txt",
-        [NSTemporaryDirectory() stringByAppendingPathComponent:@"lsbs-focusdump.txt"]
-    ];
-
-    BOOL wrote = NO;
-    NSMutableArray<NSString *> *failures = [NSMutableArray array];
-
-    for (NSString *path in paths) {
-        NSError *error = nil;
-        BOOL ok = [output writeToFile:path
-                           atomically:NO
-                             encoding:NSUTF8StringEncoding
-                                error:&error];
-
-        if (ok) {
-            NSLog(@"[LSBS] Focus diagnostic dump written: %@", path);
-            wrote = YES;
-            break;
-        }
-
-        [failures addObject:[NSString stringWithFormat:@"%@ => %@", path, error ?: @"unknown error"]];
-    }
-
-    if (!wrote) {
-        NSLog(@"[LSBS] Focus diagnostic dump FAILED at all paths: %@", failures);
-    }
-}
-
-static BOOL LSBSDiagnosticDumpScheduled = NO;
-
-static BOOL LSBSQuickActionsAreActuallyVisible(CSQuickActionsView *view) {
-    if (!view || !view.window || view.window.hidden || view.hidden || view.alpha < 0.01) {
-        return NO;
-    }
-
-    CGRect frameInWindow = [view convertRect:view.bounds toView:view.window];
-    CGRect visibleBounds = view.window.bounds;
-    CGRect intersection = CGRectIntersection(frameInWindow, visibleBounds);
-
-    return !CGRectIsNull(intersection) &&
-           !CGRectIsEmpty(intersection) &&
-           CGRectGetHeight(intersection) > (CGRectGetHeight(visibleBounds) * 0.5);
-}
-
-static void LSBSScheduleLockScreenHierarchyDumpForVisibleQuickActions(CSQuickActionsView *view) {
-    if (!LSBSQuickActionsAreActuallyVisible(view) || LSBSDiagnosticDumpScheduled) {
+    if ([NSStringFromClass([view class]) isEqualToString:@"SBUILegibilityLabel"] &&
+        LSBSIsFocusStatusLegibilityLabel(view)) {
+        view.hidden = YES;
+        view.alpha = 0.0;
+        view.userInteractionEnabled = NO;
         return;
     }
 
-    LSBSDiagnosticDumpScheduled = YES;
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        if (LSBSQuickActionsAreActuallyVisible(view)) {
-            LSBSDumpLockScreenHierarchy();
-        }
-
-        LSBSDiagnosticDumpScheduled = NO;
-    });
+    for (UIView *subview in view.subviews) {
+        LSBSHideFocusStatusLabelInTree(subview);
+    }
 }
+
+%hook NCNotificationListCountIndicatorView
+
+- (void)layoutSubviews {
+    %orig;
+    LSBSHideFocusStatusLabelInTree(self);
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    LSBSHideFocusStatusLabelInTree(self);
+}
+
+%end
 
 
 @interface LSBSBrightnessSlider : UIControl <UIGestureRecognizerDelegate> {
@@ -672,7 +486,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 - (void)layoutSubviews {
     %orig;
     LSBSLayoutBrightnessSlider(self);
-    LSBSScheduleLockScreenHierarchyDumpForVisibleQuickActions(self);
 }
 
 - (BOOL)interpretsLocationAsContent:(CGPoint)location inView:(UIView *)view {
