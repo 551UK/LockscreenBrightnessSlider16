@@ -10,23 +10,42 @@ static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscree
 static BOOL LSBSTweakEnabled = YES;
 static BOOL LSBSHideFocusBanner = NO;
 
-@interface CSFocusActivityIndicator : UIControl
-@property (nonatomic, retain) id activity;
-- (void)_updateForActivity;
-- (void)setLocalizedAccessoryTitle:(NSString *)title;
+@interface UICoverSheetButton : UIControl
+@property (nonatomic, copy) NSString *localizedAccessoryTitle;
 @end
+
+static BOOL LSBSIsDoNotDisturbTitle(NSString *title) {
+    if (![title isKindOfClass:NSString.class]) return NO;
+    NSString *trimmed = [title stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [trimmed isEqualToString:@"Do Not Disturb"];
+}
+
+static BOOL LSBSIsFocusCoverSheetButton(UICoverSheetButton *button) {
+    if (!button) return NO;
+
+    NSString *className = NSStringFromClass(button.class);
+    if ([className containsString:@"FocusActivity"]) return YES;
+
+    return LSBSIsDoNotDisturbTitle(button.localizedAccessoryTitle);
+}
 
 static void LSBSApplyFocusTitlePreferenceToViewTree(UIView *view) {
     if (!view) return;
 
-    Class focusIndicatorClass = objc_getClass("CSFocusActivityIndicator");
-    if (focusIndicatorClass && [view isKindOfClass:focusIndicatorClass]) {
-        CSFocusActivityIndicator *indicator = (CSFocusActivityIndicator *)view;
+    Class coverSheetButtonClass = objc_getClass("UICoverSheetButton");
+    if (coverSheetButtonClass && [view isKindOfClass:coverSheetButtonClass]) {
+        UICoverSheetButton *button = (UICoverSheetButton *)view;
 
-        if (LSBSHideFocusBanner) {
-            [indicator setLocalizedAccessoryTitle:@" "];
-        } else {
-            [indicator _updateForActivity];
+        if (LSBSHideFocusBanner && LSBSIsFocusCoverSheetButton(button)) {
+            [button setLocalizedAccessoryTitle:@" "];
+        } else if (!LSBSHideFocusBanner) {
+            SEL updateSelector = NSSelectorFromString(@"_updateForActivity");
+            if ([button respondsToSelector:updateSelector]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                [button performSelector:updateSelector];
+#pragma clang diagnostic pop
+            }
         }
     }
 
@@ -465,14 +484,25 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:camera];
 }
 
-%hook CSFocusActivityIndicator
+%hook UICoverSheetButton
 
-- (void)_updateForActivity {
-    %orig;
-
-    if (LSBSHideFocusBanner) {
-        [self setLocalizedAccessoryTitle:@" "];
+- (void)setLocalizedAccessoryTitle:(NSString *)title {
+    if (LSBSHideFocusBanner && LSBSIsDoNotDisturbTitle(title)) {
+        %orig(@" ");
+        return;
     }
+
+    %orig;
+}
+
+- (NSString *)localizedAccessoryTitle {
+    NSString *title = %orig;
+
+    if (LSBSHideFocusBanner && LSBSIsDoNotDisturbTitle(title)) {
+        return @" ";
+    }
+
+    return title;
 }
 
 %end
