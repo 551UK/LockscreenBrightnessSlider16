@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>LockscreenBrightnessGlyph16Prefs</string>
+    <string>LockscreenBrightnessSlider16Prefs</string>
     <key>CFBundleIconFile</key>
     <string>BrightnessGlyph16.png</string>
     <key>CFBundleIconFiles</key>
@@ -23,9 +23,9 @@
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.9</string>
+    <string>1.0.10</string>
     <key>CFBundleVersion</key>
-    <string>1.0.9</string>
+    <string>1.0.10</string>
     <key>NSPrincipalClass</key>
     <string>LSBSRootListController</string>
 </dict>
