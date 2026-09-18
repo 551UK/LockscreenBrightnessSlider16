@@ -444,10 +444,9 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     [host bringSubviewToFront:camera];
 }
 
-%hook DNDNotificationsService
+%hook CSFocusActivityManager
 
-- (void)_queue_postOrRemoveNotificationWithUpdatedBehavior:(BOOL)updatedBehavior
-                                     significantTimeChange:(BOOL)significantTimeChange {
+- (void)_updateFocusActivityIndicator {
     if (LSBSHideFocusBanner) {
         return;
     }
