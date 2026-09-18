@@ -56,10 +56,10 @@ static BOOL LSBSSpawnTool(const char *tool, char * const argv[]) {
                                                     cell:PSSwitchCell]];
 
     PSSpecifier *focusGroup = [PSSpecifier groupSpecifierWithName:@"Lock Screen DND Text"];
-    [focusGroup setProperty:@"Replaces only the Lock Screen Focus name shown between the flashlight and camera quick actions (for example “Do Not Disturb”) with a blank space. It does not change Dynamic Island content, Focus banners, Control Centre, or the Focus mode itself." forKey:@"footerText"];
+    [focusGroup setProperty:@"Replaces only the “Do Not Disturb” text shown between the Lock Screen flashlight and camera quick actions with a blank space. It does not change the Focus mode itself." forKey:@"footerText"];
     [specifiers addObject:focusGroup];
 
-    [specifiers addObject:[self preferenceSpecifierNamed:@"Hide Focus Name Between Buttons"
+    [specifiers addObject:[self preferenceSpecifierNamed:@"Hide Do Not Disturb Text"
                                                      key:@"hideFocusBanner"
                                             defaultValue:@NO
                                                     cell:PSSwitchCell]];
