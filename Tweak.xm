@@ -415,15 +415,11 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     UIView *camera = host.cameraButton;
     LSBSBrightnessSlider *slider = LSBSSliderForQuickActionsView(host, LSBSTweakEnabled);
 
-    if (!LSBSTweakEnabled) {
-        if (slider) slider.hidden = YES;
-        return;
-    }
-
     if (!flashlight || !camera ||
         flashlight.hidden || camera.hidden ||
         flashlight.alpha < 0.01 || camera.alpha < 0.01) {
-        slider.hidden = YES;
+        if (slider) slider.hidden = YES;
+        LSBSQuickActionsTextRegion = CGRectZero;
         return;
     }
 
@@ -431,7 +427,8 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     CGRect cameraRect = LSBSRectForViewInsideHost(camera, host);
 
     if (CGRectIsEmpty(flashlightRect) || CGRectIsEmpty(cameraRect)) {
-        slider.hidden = YES;
+        if (slider) slider.hidden = YES;
+        LSBSQuickActionsTextRegion = CGRectZero;
         return;
     }
 
@@ -442,6 +439,38 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
         CGRect temporary = leftRect;
         leftRect = rightRect;
         rightRect = temporary;
+    }
+
+    /*
+     * Always calculate the physical area between the two Lock Screen buttons.
+     * This keeps the DND-text switch independent from the main slider switch.
+     */
+    CGRect leftScreenRect = [host convertRect:leftRect toView:nil];
+    CGRect rightScreenRect = [host convertRect:rightRect toView:nil];
+
+    if (CGRectGetMidX(leftScreenRect) > CGRectGetMidX(rightScreenRect)) {
+        CGRect temporary = leftScreenRect;
+        leftScreenRect = rightScreenRect;
+        rightScreenRect = temporary;
+    }
+
+    CGFloat textRegionLeft = CGRectGetMaxX(leftScreenRect) - 6.0;
+    CGFloat textRegionRight = CGRectGetMinX(rightScreenRect) + 6.0;
+    CGFloat textRegionTop = MIN(CGRectGetMinY(leftScreenRect), CGRectGetMinY(rightScreenRect)) - 70.0;
+    CGFloat textRegionBottom = MAX(CGRectGetMaxY(leftScreenRect), CGRectGetMaxY(rightScreenRect)) + 70.0;
+
+    LSBSQuickActionsTextRegion = CGRectMake(textRegionLeft,
+                                            textRegionTop,
+                                            MAX(0.0, textRegionRight - textRegionLeft),
+                                            MAX(0.0, textRegionBottom - textRegionTop));
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        LSBSBlankExistingDoNotDisturbTextInView(host.window);
+    });
+
+    if (!LSBSTweakEnabled) {
+        if (slider) slider.hidden = YES;
+        return;
     }
 
     /*
@@ -470,35 +499,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
                                              buttonsCenterY - (sliderHeight * 0.5),
                                              sliderWidth,
                                              sliderHeight));
-
-    /*
-     * Store the actual on-screen strip between the two Lock Screen quick
-     * actions. The optional DND-text setting only operates inside this region,
-     * so it does not alter Focus banners, Dynamic Island content, Control
-     * Centre, or the Focus state itself.
-     */
-    CGRect leftScreenRect = [host convertRect:leftRect toView:nil];
-    CGRect rightScreenRect = [host convertRect:rightRect toView:nil];
-
-    if (CGRectGetMidX(leftScreenRect) > CGRectGetMidX(rightScreenRect)) {
-        CGRect temporary = leftScreenRect;
-        leftScreenRect = rightScreenRect;
-        rightScreenRect = temporary;
-    }
-
-    CGFloat textRegionLeft = CGRectGetMaxX(leftScreenRect) - 6.0;
-    CGFloat textRegionRight = CGRectGetMinX(rightScreenRect) + 6.0;
-    CGFloat textRegionTop = MIN(CGRectGetMinY(leftScreenRect), CGRectGetMinY(rightScreenRect)) - 70.0;
-    CGFloat textRegionBottom = MAX(CGRectGetMaxY(leftScreenRect), CGRectGetMaxY(rightScreenRect)) + 70.0;
-
-    LSBSQuickActionsTextRegion = CGRectMake(textRegionLeft,
-                                            textRegionTop,
-                                            MAX(0.0, textRegionRight - textRegionLeft),
-                                            MAX(0.0, textRegionBottom - textRegionTop));
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        LSBSBlankExistingDoNotDisturbTextInView(host.window);
-    });
 
     slider.hidden = NO;
     slider.brightnessValue = LSBSGetSystemBrightness();
