@@ -21,15 +21,6 @@ static BOOL LSBSIsDoNotDisturbTitle(NSString *title) {
     return [trimmed isEqualToString:@"Do Not Disturb"];
 }
 
-static BOOL LSBSIsFocusCoverSheetButton(UICoverSheetButton *button) {
-    if (!button) return NO;
-
-    NSString *className = NSStringFromClass(button.class);
-    if ([className containsString:@"FocusActivity"]) return YES;
-
-    return LSBSIsDoNotDisturbTitle(button.localizedAccessoryTitle);
-}
-
 
 static void (*LSBSOriginalFocusIndicatorUpdate)(id, SEL) = NULL;
 
