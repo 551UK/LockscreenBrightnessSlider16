@@ -56,16 +56,45 @@ static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
     LSBSRefreshQuickActionsLayouts();
 }
 
-static void (*LSBSOriginalFocusBannerPostActivity)(id, SEL, id, BOOL) = NULL;
+static BOOL (*LSBSOriginalFocusShouldSuppressOnCoversheet)(id, SEL) = NULL;
+static void (*LSBSOriginalFocusLayoutTextViews)(id, SEL, id) = NULL;
 
-static void LSBSFocusBannerPostActivityHook(id self, SEL _cmd, id activity, BOOL enabled) {
+static void LSBSSetFocusElementTextHidden(id element, BOOL hidden) {
+    if (!element) return;
+
+    const char *ivarNames[] = {
+        "_activityTitleLabel",
+        "_activityOnOffLabel",
+        "_onOffTrailingLabel"
+    };
+
+    for (NSUInteger i = 0; i < sizeof(ivarNames) / sizeof(ivarNames[0]); i++) {
+        Ivar ivar = class_getInstanceVariable([element class], ivarNames[i]);
+        if (!ivar) continue;
+
+        id value = object_getIvar(element, ivar);
+        if ([value isKindOfClass:UIView.class]) {
+            [(UIView *)value setHidden:hidden];
+        }
+    }
+}
+
+static BOOL LSBSFocusShouldSuppressOnCoversheetHook(id self, SEL _cmd) {
     if (LSBSTweakEnabled && LSBSHideFocusBanner) {
-        return;
+        return YES;
     }
 
-    if (LSBSOriginalFocusBannerPostActivity) {
-        LSBSOriginalFocusBannerPostActivity(self, _cmd, activity, enabled);
+    return LSBSOriginalFocusShouldSuppressOnCoversheet
+        ? LSBSOriginalFocusShouldSuppressOnCoversheet(self, _cmd)
+        : NO;
+}
+
+static void LSBSFocusLayoutTextViewsHook(id self, SEL _cmd, id containerView) {
+    if (LSBSOriginalFocusLayoutTextViews) {
+        LSBSOriginalFocusLayoutTextViews(self, _cmd, containerView);
     }
+
+    LSBSSetFocusElementTextHidden(self, LSBSTweakEnabled && LSBSHideFocusBanner);
 }
 
 static void LSBSInstallFocusBannerHook(void) {
@@ -73,16 +102,24 @@ static void LSBSInstallFocusBannerHook(void) {
     dispatch_once(&onceToken, ^{
         dlopen("/System/Library/PrivateFrameworks/FocusUI.framework/FocusUI", RTLD_LAZY | RTLD_GLOBAL);
 
-        Class managerClass = objc_getClass("FCUIFocusEnablementIndicatorBannerManager");
-        SEL selector = NSSelectorFromString(@"postActivity:enabled:");
-        if (!managerClass || !selector) return;
+        Class elementClass = objc_getClass("FCUIFocusEnablementIndicatorSystemApertureElement");
+        if (!elementClass) return;
 
-        Method method = class_getInstanceMethod(managerClass, selector);
-        if (!method) return;
+        SEL suppressSelector = NSSelectorFromString(@"shouldSuppressElementWhileOnCoversheet");
+        Method suppressMethod = class_getInstanceMethod(elementClass, suppressSelector);
+        if (suppressMethod) {
+            LSBSOriginalFocusShouldSuppressOnCoversheet =
+                (BOOL (*)(id, SEL))method_getImplementation(suppressMethod);
+            method_setImplementation(suppressMethod, (IMP)LSBSFocusShouldSuppressOnCoversheetHook);
+        }
 
-        LSBSOriginalFocusBannerPostActivity =
-            (void (*)(id, SEL, id, BOOL))method_getImplementation(method);
-        method_setImplementation(method, (IMP)LSBSFocusBannerPostActivityHook);
+        SEL layoutSelector = NSSelectorFromString(@"_layoutCustomTextViewsInContainerView:");
+        Method layoutMethod = class_getInstanceMethod(elementClass, layoutSelector);
+        if (layoutMethod) {
+            LSBSOriginalFocusLayoutTextViews =
+                (void (*)(id, SEL, id))method_getImplementation(layoutMethod);
+            method_setImplementation(layoutMethod, (IMP)LSBSFocusLayoutTextViewsHook);
+        }
     });
 }
 
