@@ -38,10 +38,16 @@ static void LSBSFocusIndicatorUpdateHook(id self, SEL _cmd) {
         LSBSOriginalFocusIndicatorUpdate(self, _cmd);
     }
 
-    if (LSBSHideFocusBanner && [self respondsToSelector:@selector(setLocalizedAccessoryTitle:)]) {
-        ((void (*)(id, SEL, id))objc_msgSend)(self,
-                                              @selector(setLocalizedAccessoryTitle:),
-                                              @" ");
+    if (LSBSHideFocusBanner &&
+        [self respondsToSelector:@selector(localizedAccessoryTitle)] &&
+        [self respondsToSelector:@selector(setLocalizedAccessoryTitle:)]) {
+        NSString *title = ((id (*)(id, SEL))objc_msgSend)(self,
+                                                          @selector(localizedAccessoryTitle));
+        if (LSBSIsDoNotDisturbTitle(title)) {
+            ((void (*)(id, SEL, id))objc_msgSend)(self,
+                                                  @selector(setLocalizedAccessoryTitle:),
+                                                  @" ");
+        }
     }
 }
 
@@ -69,7 +75,7 @@ static void LSBSApplyFocusTitlePreferenceToViewTree(UIView *view) {
     if (coverSheetButtonClass && [view isKindOfClass:coverSheetButtonClass]) {
         UICoverSheetButton *button = (UICoverSheetButton *)view;
 
-        if (LSBSHideFocusBanner && LSBSIsFocusCoverSheetButton(button)) {
+        if (LSBSHideFocusBanner && LSBSIsDoNotDisturbTitle(button.localizedAccessoryTitle)) {
             [button setLocalizedAccessoryTitle:@" "];
         } else if (!LSBSHideFocusBanner) {
             SEL updateSelector = NSSelectorFromString(@"_updateForActivity");
