@@ -71,5 +71,7 @@ jobs:
 
           gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
             [ "$tag" = "$current" ] && continue
+            # Keep the known-good slider-only baseline permanently available.
+            [ "$tag" = "v1.0.21" ] && continue
             gh release delete "$tag" --cleanup-tag -y
           done
