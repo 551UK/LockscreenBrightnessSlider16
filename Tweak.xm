@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 #import <math.h>
 #import <dlfcn.h>
+#import <string.h>
 
 
 static CFStringRef const LSBSPrefsDomain = CFSTR("com.551.lockscreenbrightnessslider16");
@@ -459,7 +460,8 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     if (LSBSHideFocusBanner &&
         [name isEqualToString:@"SBQuietModeStatusChangedNotification"]) {
         void *caller = __builtin_return_address(0);
-        Dl_info info = {0};
+        Dl_info info;
+        memset(&info, 0, sizeof(info));
 
         if (caller && dladdr(caller, &info) && info.dli_fname) {
             NSString *imagePath = [NSString stringWithUTF8String:info.dli_fname];
