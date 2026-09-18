@@ -1,6 +1,6 @@
 # Lockscreen Brightness Slider 16
 
-Adds a brightness slider between the iOS 16 Lock Screen flashlight and camera buttons, with an option to hide the DND / Focus name shown in the same area.
+Adds a brightness slider between the iOS 16 Lock Screen flashlight and camera buttons, with an option to hide the DND / Focus name shown in the same area so it does not render under the brightness slider.
 
 ## DND / Focus hook
 
