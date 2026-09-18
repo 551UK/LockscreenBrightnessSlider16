@@ -55,11 +55,11 @@ static BOOL LSBSSpawnTool(const char *tool, char * const argv[]) {
                                             defaultValue:@YES
                                                     cell:PSSwitchCell]];
 
-    PSSpecifier *focusGroup = [PSSpecifier groupSpecifierWithName:@"Do Not Disturb / Focus"];
-    [focusGroup setProperty:@"Hides the Do Not Disturb / Focus confirmation text that appears between the flashlight and camera quick actions. This is useful because that text appears directly underneath the brightness bar. Do Not Disturb itself still turns on and off normally." forKey:@"footerText"];
+    PSSpecifier *focusGroup = [PSSpecifier groupSpecifierWithName:@"Lock Screen DND Text"];
+    [focusGroup setProperty:@"Hides the “Do Not Disturb” / Focus text that appears between the flashlight and camera quick actions, directly underneath the brightness bar. This only hides that Lock Screen indicator; Do Not Disturb still turns on and off normally." forKey:@"footerText"];
     [specifiers addObject:focusGroup];
 
-    [specifiers addObject:[self preferenceSpecifierNamed:@"Hide DND / Focus Text"
+    [specifiers addObject:[self preferenceSpecifierNamed:@"Hide Lock Screen DND Text"
                                                      key:@"hideFocusBanner"
                                             defaultValue:@NO
                                                     cell:PSSwitchCell]];
