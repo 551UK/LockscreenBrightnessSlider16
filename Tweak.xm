@@ -133,55 +133,42 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-static const void *LSBSDNDLabelMarkerKey = &LSBSDNDLabelMarkerKey;
+@protocol LSBSFocusActivityDescribing <NSObject>
+- (NSString *)activityDisplayName;
+@end
 
-static BOOL LSBSStringIsDND(NSString *string) {
-    return [string isEqualToString:@"Do Not Disturb"];
-}
+@interface CSFocusActivityIndicator : UIControl
+- (id<LSBSFocusActivityDescribing>)activity;
+- (void)setLocalizedAccessoryTitle:(NSString *)title;
+- (void)_updateForActivity;
+@end
 
-static BOOL LSBSLabelIsMarkedDND(UILabel *label) {
-    return [objc_getAssociatedObject(label, LSBSDNDLabelMarkerKey) boolValue];
-}
-
-static void LSBSUpdateDNDLabelMarker(UILabel *label, NSString *string) {
-    BOOL shouldHide = LSBSHideFocusBanner && LSBSStringIsDND(string);
-    objc_setAssociatedObject(label,
-                             LSBSDNDLabelMarkerKey,
-                             @(shouldHide),
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-
-    if (shouldHide) {
-        [label setHidden:YES];
-        [label setAlpha:0.0];
+static BOOL LSBSIsDoNotDisturbFocus(id<LSBSFocusActivityDescribing> activity) {
+    if (!activity || ![activity respondsToSelector:@selector(activityDisplayName)]) {
+        return NO;
     }
+
+    NSString *displayName = [activity activityDisplayName];
+    return [displayName isEqualToString:@"Do Not Disturb"];
 }
 
-%hook UILabel
+%hook CSFocusActivityIndicator
 
-- (void)setText:(NSString *)text {
+- (void)_updateForActivity {
     %orig;
-    LSBSUpdateDNDLabelMarker(self, text);
-}
 
-- (void)setAttributedText:(NSAttributedString *)attributedText {
-    %orig;
-    LSBSUpdateDNDLabelMarker(self, attributedText.string);
-}
-
-- (void)setHidden:(BOOL)hidden {
-    if (LSBSLabelIsMarkedDND(self)) {
-        %orig(YES);
+    if (!LSBSHideFocusBanner) {
         return;
     }
-    %orig(hidden);
-}
 
-- (void)setAlpha:(CGFloat)alpha {
-    if (LSBSLabelIsMarkedDND(self)) {
-        %orig(0.0);
-        return;
+    id<LSBSFocusActivityDescribing> activity = nil;
+    if ([self respondsToSelector:@selector(activity)]) {
+        activity = [self activity];
     }
-    %orig(alpha);
+
+    if (LSBSIsDoNotDisturbFocus(activity)) {
+        [self setLocalizedAccessoryTitle:nil];
+    }
 }
 
 %end
