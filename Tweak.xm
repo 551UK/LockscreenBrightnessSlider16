@@ -16,16 +16,6 @@ static BOOL LSBSHideFocusBanner = YES;
 - (NSString *)activityIdentifier;
 @end
 
-@interface LSBSFocusEnablementIndicatorBannerPresentable : NSObject
-- (id<LSBSFCActivityDescribing>)activityDescription;
-@end
-
-@interface LSBSBNTemplateItemProvider : NSObject
-- (void)setHidden:(BOOL)hidden;
-@end
-
-static id (*LSBSOriginalFocusPrimaryTemplateItemProvider)(id, SEL) = NULL;
-
 static BOOL LSBSIsDoNotDisturbActivity(id<LSBSFCActivityDescribing> activity) {
     if (!activity) return NO;
 
@@ -40,49 +30,48 @@ static BOOL LSBSIsDoNotDisturbActivity(id<LSBSFCActivityDescribing> activity) {
         displayName = [activity activityDisplayName];
     }
 
-    // Use Apple's stable DND activity identifier first; display name is only
-    // a fallback for builds where the identifier is exposed differently.
     return [identifier isEqualToString:@"com.apple.donotdisturb.mode.default"] ||
            [displayName isEqualToString:@"Do Not Disturb"];
 }
 
-static id LSBSFocusPrimaryTemplateItemProviderHook(id self, SEL _cmd) {
-    id provider = LSBSOriginalFocusPrimaryTemplateItemProvider
-        ? LSBSOriginalFocusPrimaryTemplateItemProvider(self, _cmd)
-        : nil;
+/*
+ * iOS 16 FocusUI posts the small lock-screen Focus indicator through
+ * FCUIFocusEnablementIndicatorBannerManager.  Suppress only the DND post
+ * before BannerKit creates the presentable.  This deliberately avoids
+ * touching template providers, visibility, timers or dismissal callbacks,
+ * which can leave the indicator stuck on screen.
+ */
+static void (*LSBSOriginalFocusPostActivity)(id, SEL, id, BOOL) = NULL;
 
-    if (!LSBSHideFocusBanner || !provider) {
-        return provider;
+static void LSBSFocusPostActivityHook(id self, SEL _cmd, id activity, BOOL enabled) {
+    if (LSBSHideFocusBanner &&
+        LSBSIsDoNotDisturbActivity((id<LSBSFCActivityDescribing>)activity)) {
+        return;
     }
 
-    id<LSBSFCActivityDescribing> activity = nil;
-    if ([self respondsToSelector:@selector(activityDescription)]) {
-        activity = [(LSBSFocusEnablementIndicatorBannerPresentable *)self activityDescription];
+    if (LSBSOriginalFocusPostActivity) {
+        LSBSOriginalFocusPostActivity(self, _cmd, activity, enabled);
     }
-
-    if (LSBSIsDoNotDisturbActivity(activity) &&
-        [provider respondsToSelector:@selector(setHidden:)]) {
-        [(LSBSBNTemplateItemProvider *)provider setHidden:YES];
-    }
-
-    return provider;
 }
 
-static void LSBSInstallFocusBannerTextHook(void) {
+static void LSBSInstallFocusBannerPostHook(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         void *handle = dlopen("/System/Library/PrivateFrameworks/FocusUI.framework/FocusUI",
                               RTLD_LAZY | RTLD_GLOBAL);
         if (!handle) return;
 
-        Class cls = objc_getClass("FCUIFocusEnablementIndicatorBannerPresentable");
-        SEL selector = NSSelectorFromString(@"primaryTemplateItemProvider");
+        Class cls = objc_getClass("FCUIFocusEnablementIndicatorBannerManager");
+        SEL selector = NSSelectorFromString(@"postActivity:enabled:");
         Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
         if (!method) return;
 
-        LSBSOriginalFocusPrimaryTemplateItemProvider =
-            (id (*)(id, SEL))method_getImplementation(method);
-        method_setImplementation(method, (IMP)LSBSFocusPrimaryTemplateItemProviderHook);
+        IMP current = method_getImplementation(method);
+        if (current == (IMP)LSBSFocusPostActivityHook) return;
+
+        LSBSOriginalFocusPostActivity =
+            (void (*)(id, SEL, id, BOOL))current;
+        method_setImplementation(method, (IMP)LSBSFocusPostActivityHook);
     });
 }
 
@@ -136,7 +125,7 @@ __attribute__((constructor))
 static void LSBSInitialize(void) {
     @autoreleasepool {
         LSBSLoadPreferences();
-        LSBSInstallFocusBannerTextHook();
+        LSBSInstallFocusBannerPostHook();
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
