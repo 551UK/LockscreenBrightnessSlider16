@@ -46,38 +46,6 @@ jobs:
           test -s "$binary"
           xcrun lipo "$binary" -verify_arch arm64 arm64e
 
-      - name: Research QuickActions DND method map
-        run: |
-          set -euo pipefail
-          url="https://raw.githubusercontent.com/Cxs1125/cxs1125.github.io/6232ca47b0949eb609964c829593475c01bc0f13/debs/com.cameronkatri.quickactions_1.0.0-2_iphoneos-arm64.deb"
-          curl -L --fail --retry 3 "$url" -o "$RUNNER_TEMP/quickactions.deb"
-          rm -rf "$RUNNER_TEMP/quickactions"
-          mkdir -p "$RUNNER_TEMP/quickactions"
-          dpkg-deb -x "$RUNNER_TEMP/quickactions.deb" "$RUNNER_TEMP/quickactions"
-          dylib="$RUNNER_TEMP/quickactions/var/jb/Library/MobileSubstrate/DynamicLibraries/QuickActions.dylib"
-
-          echo "=== FULL NM 0x9000-0xa500 ==="
-          nm -a -nm "$dylib" | python3 -c '
-          import sys,re
-          for line in sys.stdin:
-              m=re.match(r"([0-9a-fA-F]{16})", line)
-              if m and 0x9000 <= int(m.group(1),16) <= 0xa500:
-                  print(line,end="")
-          '
-
-          echo "=== INDIRECT SYMBOL TABLE ==="
-          otool -Iv "$dylib" | grep -E 'objc_msgSend|MSHook|class_add|objc_getClass' || true
-
-          echo "=== ALL RELOC / SELREF DETAILS ==="
-          otool -rv "$dylib" | head -n 4000 || true
-
-          echo "=== DATA CONTENTS SELREF REGION ==="
-          otool -s __DATA __objc_selrefs "$dylib" || true
-          otool -s __DATA_CONST __objc_selrefs "$dylib" || true
-
-          echo "=== FUNCTION STARTS / LOAD COMMANDS ==="
-          otool -l "$dylib" | grep -A8 -B2 -E 'LC_FUNCTION_STARTS|dataoff|datasize' || true
-
       - uses: actions/upload-artifact@v4
         with:
           name: LockscreenBrightnessSlider16-rootless
