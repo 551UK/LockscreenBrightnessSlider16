@@ -65,6 +65,10 @@
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+    if (_windowPanGesture.view) {
+        [_windowPanGesture.view removeGestureRecognizer:_windowPanGesture];
+    }
 }
 
 - (void)layoutSubviews {
@@ -129,13 +133,62 @@
     [self applyPoint:[touch locationInView:self]];
 }
 
+- (void)installWindowPanIfNeeded {
+    UIWindow *window = self.window;
+    if (!window) {
+        return;
+    }
+
+    if (_windowPanGesture && _windowPanGesture.view == window) {
+        return;
+    }
+
+    if (_windowPanGesture.view) {
+        [_windowPanGesture.view removeGestureRecognizer:_windowPanGesture];
+    }
+
+    _windowPanGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleBrightnessPan:)];
+    _windowPanGesture.minimumNumberOfTouches = 1;
+    _windowPanGesture.maximumNumberOfTouches = 1;
+    _windowPanGesture.cancelsTouchesInView = NO;
+    _windowPanGesture.delaysTouchesBegan = NO;
+    _windowPanGesture.delaysTouchesEnded = NO;
+    _windowPanGesture.delegate = self;
+
+    [window addGestureRecognizer:_windowPanGesture];
+}
+
 - (void)handleBrightnessPan:(UIPanGestureRecognizer *)gesture {
     UIGestureRecognizerState state = gesture.state;
     if (state == UIGestureRecognizerStateBegan ||
         state == UIGestureRecognizerStateChanged ||
         state == UIGestureRecognizerStateEnded) {
-        [self applyPoint:[gesture locationInView:self]];
+        UIWindow *window = self.window;
+        if (!window) {
+            return;
+        }
+
+        CGPoint pointInWindow = [gesture locationInView:window];
+        CGPoint pointInSlider = [window convertPoint:pointInWindow toView:self];
+        [self applyPoint:pointInSlider];
     }
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if (gestureRecognizer != _windowPanGesture || self.hidden || self.alpha < 0.01 || !self.userInteractionEnabled) {
+        return YES;
+    }
+
+    UIWindow *window = self.window;
+    if (!window) {
+        return NO;
+    }
+
+    CGPoint pointInWindow = [gestureRecognizer locationInView:window];
+    CGPoint pointInSlider = [window convertPoint:pointInWindow toView:self];
+
+    // Only claim a pan that actually starts on the 44pt-high slider touch area.
+    return [self pointInside:pointInSlider withEvent:nil];
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
@@ -254,6 +307,7 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 
     slider.hidden = NO;
     slider.brightnessValue = UIScreen.mainScreen.brightness;
+    [slider installWindowPanIfNeeded];
 
     // Keep the slider above the quick-actions background but do not disturb the buttons.
     [host bringSubviewToFront:slider];
