@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <math.h>
 #import <dlfcn.h>
 #import <string.h>
@@ -128,103 +129,190 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-static BOOL LSBSViewIsInsideFocusIndicatorHierarchy(UIView *view) {
-    UIView *current = view;
+static NSString *LSBSDiagnosticObjectString(id object, SEL selector) {
+    if (!object || ![object respondsToSelector:selector]) return nil;
 
-    while (current) {
-        NSString *className = NSStringFromClass([current class]);
-
-        if ([className isEqualToString:@"CSFocusActivityView"] ||
-            [className isEqualToString:@"CSFocusActivityIndicator"]) {
-            return YES;
-        }
-
-        current = current.superview;
+    id value = ((id (*)(id, SEL))objc_msgSend)(object, selector);
+    if ([value isKindOfClass:[NSString class]]) {
+        return (NSString *)value;
     }
-
-    return NO;
+    if ([value isKindOfClass:[NSAttributedString class]]) {
+        return [(NSAttributedString *)value string];
+    }
+    return nil;
 }
 
-static void LSBSBlankFocusLabelsInViewTree(id viewObject) {
-    UIView *view = (UIView *)viewObject;
-    if (!view) return;
+static NSString *LSBSSanitizeDiagnosticString(NSString *value) {
+    if (!value.length) return nil;
 
-    if ([view isKindOfClass:[UILabel class]]) {
-        UILabel *label = (UILabel *)view;
+    NSString *clean = [value stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+    clean = [clean stringByReplacingOccurrencesOfString:@"\r" withString:@"\\r"];
+    if (clean.length > 300) {
+        clean = [[clean substringToIndex:300] stringByAppendingString:@"…"];
+    }
+    return clean;
+}
 
-        if (LSBSViewIsInsideFocusIndicatorHierarchy(label)) {
-            if (label.text.length > 0) {
-                label.text = @"";
-            }
+static void LSBSDumpLayerTree(CALayer *layer,
+                              NSMutableString *output,
+                              NSUInteger depth) {
+    if (!layer || depth > 20) return;
 
-            if (label.attributedText.length > 0) {
-                label.attributedText = [[NSAttributedString alloc] initWithString:@""];
-            }
+    NSString *indent = [@"" stringByPaddingToLength:(depth * 2)
+                                          withString:@" "
+                                     startingAtIndex:0];
+
+    NSString *layerClass = NSStringFromClass([layer class]);
+    NSString *extra = @"";
+
+    if ([layer isKindOfClass:[CATextLayer class]]) {
+        id stringValue = [(CATextLayer *)layer string];
+        NSString *text = nil;
+        if ([stringValue isKindOfClass:[NSString class]]) {
+            text = stringValue;
+        } else if ([stringValue isKindOfClass:[NSAttributedString class]]) {
+            text = [(NSAttributedString *)stringValue string];
         }
+        text = LSBSSanitizeDiagnosticString(text);
+        if (text.length) {
+            extra = [NSString stringWithFormat:@" text=\"%@\"", text];
+        }
+    }
+
+    [output appendFormat:@"%@LAYER %@ frame=%@ bounds=%@ hidden=%d opacity=%.3f%@\n",
+                         indent,
+                         layerClass,
+                         NSStringFromCGRect(layer.frame),
+                         NSStringFromCGRect(layer.bounds),
+                         layer.hidden,
+                         layer.opacity,
+                         extra];
+
+    for (CALayer *sublayer in layer.sublayers) {
+        LSBSDumpLayerTree(sublayer, output, depth + 1);
+    }
+}
+
+static void LSBSDumpViewTree(UIView *view,
+                             UIWindow *window,
+                             NSMutableString *output,
+                             NSUInteger depth) {
+    if (!view || depth > 40) return;
+
+    NSString *indent = [@"" stringByPaddingToLength:(depth * 2)
+                                          withString:@" "
+                                     startingAtIndex:0];
+
+    CGRect windowFrame = CGRectZero;
+    @try {
+        windowFrame = [view convertRect:view.bounds toView:window];
+    } @catch (__unused NSException *exception) {
+        windowFrame = view.frame;
+    }
+
+    NSMutableArray<NSString *> *properties = [NSMutableArray array];
+
+    NSArray<NSString *> *selectorNames = @[
+        @"text",
+        @"attributedText",
+        @"currentTitle",
+        @"title",
+        @"localizedAccessoryTitle",
+        @"accessibilityLabel",
+        @"accessibilityValue",
+        @"accessibilityIdentifier"
+    ];
+
+    for (NSString *selectorName in selectorNames) {
+        SEL selector = NSSelectorFromString(selectorName);
+        NSString *value = nil;
+        @try {
+            value = LSBSDiagnosticObjectString(view, selector);
+        } @catch (__unused NSException *exception) {
+            value = nil;
+        }
+
+        value = LSBSSanitizeDiagnosticString(value);
+        if (value.length) {
+            [properties addObject:[NSString stringWithFormat:@"%@=\"%@\"", selectorName, value]];
+        }
+    }
+
+    NSString *propertyText = properties.count
+        ? [NSString stringWithFormat:@" %@", [properties componentsJoinedByString:@" "]]
+        : @"";
+
+    [output appendFormat:@"%@VIEW %@ <%p> winFrame=%@ frame=%@ bounds=%@ hidden=%d alpha=%.3f%@\n",
+                         indent,
+                         NSStringFromClass([view class]),
+                         view,
+                         NSStringFromCGRect(windowFrame),
+                         NSStringFromCGRect(view.frame),
+                         NSStringFromCGRect(view.bounds),
+                         view.hidden,
+                         view.alpha,
+                         propertyText];
+
+    if ([NSStringFromClass([view class]) rangeOfString:@"Focus" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+        properties.count > 0) {
+        LSBSDumpLayerTree(view.layer, output, depth + 1);
     }
 
     for (UIView *subview in view.subviews) {
-        LSBSBlankFocusLabelsInViewTree(subview);
+        LSBSDumpViewTree(subview, window, output, depth + 1);
     }
 }
 
-%group LSBSFocusNameHooks
+static void LSBSDumpLockScreenHierarchy(void) {
+    UIApplication *application = UIApplication.sharedApplication;
+    NSMutableString *output = [NSMutableString string];
 
-%hook UILabel
+    [output appendFormat:@"LockscreenBrightnessSlider16 diagnostic dump\n"];
+    [output appendFormat:@"Date: %@\n", [NSDate date]];
+    [output appendFormat:@"Screen bounds: %@\n\n", NSStringFromCGRect(UIScreen.mainScreen.bounds)];
 
-- (void)setText:(NSString *)text {
-    if (LSBSViewIsInsideFocusIndicatorHierarchy(self)) {
-        %orig(@"");
-        return;
-    }
+    NSUInteger windowIndex = 0;
+    for (UIScene *scene in application.connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
 
-    %orig;
-}
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        for (UIWindow *window in windowScene.windows) {
+            [output appendFormat:@"===== WINDOW %lu %@ level=%.1f hidden=%d alpha=%.3f =====\n",
+                                 (unsigned long)windowIndex++,
+                                 NSStringFromClass([window class]),
+                                 window.windowLevel,
+                                 window.hidden,
+                                 window.alpha];
 
-- (void)setAttributedText:(NSAttributedString *)attributedText {
-    if (LSBSViewIsInsideFocusIndicatorHierarchy(self)) {
-        %orig([[NSAttributedString alloc] initWithString:@""]);
-        return;
-    }
-
-    %orig;
-}
-
-- (void)didMoveToSuperview {
-    %orig;
-
-    if (LSBSViewIsInsideFocusIndicatorHierarchy(self)) {
-        if (self.text.length > 0) {
-            self.text = @"";
-        }
-
-        if (self.attributedText.length > 0) {
-            self.attributedText = [[NSAttributedString alloc] initWithString:@""];
+            LSBSDumpViewTree(window, window, output, 0);
+            [output appendString:@"\n"];
         }
     }
+
+    NSString *path = @"/var/mobile/Library/Preferences/com.551.lockscreenbrightnessslider16-focusdump.txt";
+    NSError *error = nil;
+    BOOL ok = [output writeToFile:path
+                       atomically:YES
+                         encoding:NSUTF8StringEncoding
+                            error:&error];
+
+    NSLog(@"[LSBS] Focus diagnostic dump %@: %@%@",
+          ok ? @"written" : @"FAILED",
+          path,
+          error ? [NSString stringWithFormat:@" (%@)", error] : @"");
 }
 
-%end
+static BOOL LSBSDiagnosticDumpScheduled = NO;
 
-%hook CSFocusActivityView
+static void LSBSScheduleLockScreenHierarchyDump(void) {
+    if (LSBSDiagnosticDumpScheduled) return;
+    LSBSDiagnosticDumpScheduled = YES;
 
-- (void)layoutSubviews {
-    %orig;
-    LSBSBlankFocusLabelsInViewTree(self);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        LSBSDumpLockScreenHierarchy();
+    });
 }
-
-%end
-
-%hook CSFocusActivityIndicator
-
-- (void)layoutSubviews {
-    %orig;
-    LSBSBlankFocusLabelsInViewTree(self);
-}
-
-%end
-
-%end
 
 
 @interface LSBSBrightnessSlider : UIControl <UIGestureRecognizerDelegate> {
@@ -546,6 +634,7 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 - (void)layoutSubviews {
     %orig;
     LSBSLayoutBrightnessSlider(self);
+    LSBSScheduleLockScreenHierarchyDump();
 }
 
 - (BOOL)interpretsLocationAsContent:(CGPoint)location inView:(UIView *)view {
@@ -598,9 +687,6 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 
 %ctor {
     @autoreleasepool {
-        dlopen("/System/Library/PrivateFrameworks/CoverSheet.framework/CoverSheet", RTLD_LAZY | RTLD_LOCAL);
-
         %init;
-        %init(LSBSFocusNameHooks);
     }
 }
