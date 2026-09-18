@@ -128,6 +128,58 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
+@protocol LSBSFocusActivityDescribing <NSObject>
+- (NSString *)activityDisplayName;
+@end
+
+@interface CSFocusActivityIndicator : UIControl
+@property (nonatomic, copy) NSString *localizedAccessoryTitle;
+- (id<LSBSFocusActivityDescribing>)activity;
+- (void)_updateForActivity;
+@end
+
+static BOOL LSBSIsDoNotDisturbActivity(id<LSBSFocusActivityDescribing> activity) {
+    if (!activity || ![activity respondsToSelector:@selector(activityDisplayName)]) {
+        return NO;
+    }
+
+    NSString *name = [activity activityDisplayName];
+    return [name isEqualToString:@"Do Not Disturb"];
+}
+
+/*
+ * The persistent Focus pill/text on the Lock Screen is owned by
+ * CSFocusActivityIndicator. Do not interfere with Focus state, notifications,
+ * assertions, or presentation/removal. Only replace DND's visible accessory
+ * title with a zero-width string.
+ */
+%hook CSFocusActivityIndicator
+
+- (void)setLocalizedAccessoryTitle:(NSString *)title {
+    if ([title isEqualToString:@"Do Not Disturb"]) {
+        %orig(@"​");
+        return;
+    }
+
+    %orig;
+}
+
+- (void)_updateForActivity {
+    %orig;
+
+    id<LSBSFocusActivityDescribing> currentActivity = nil;
+    if ([self respondsToSelector:@selector(activity)]) {
+        currentActivity = [self activity];
+    }
+
+    if (LSBSIsDoNotDisturbActivity(currentActivity)) {
+        [self setLocalizedAccessoryTitle:@"​"];
+    }
+}
+
+%end
+
+
 @interface LSBSBrightnessSlider : UIControl <UIGestureRecognizerDelegate> {
     UIView *_trackView;
     UIView *_fillView;
