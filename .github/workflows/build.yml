@@ -46,43 +46,26 @@ jobs:
           test -s "$binary"
           xcrun lipo "$binary" -verify_arch arm64 arm64e
 
-      - name: Research QuickActions DND implementation
+      - name: Research QuickActions source
         run: |
           set -euo pipefail
-          url="https://raw.githubusercontent.com/Cxs1125/cxs1125.github.io/6232ca47b0949eb609964c829593475c01bc0f13/debs/com.cameronkatri.quickactions_1.0.0-2_iphoneos-arm64.deb"
-          curl -L --fail --retry 3 "$url" -o "$RUNNER_TEMP/quickactions.deb"
-          rm -rf "$RUNNER_TEMP/quickactions"
-          mkdir -p "$RUNNER_TEMP/quickactions"
-          dpkg-deb -x "$RUNNER_TEMP/quickactions.deb" "$RUNNER_TEMP/quickactions"
-          dylib="$RUNNER_TEMP/quickactions/var/jb/Library/MobileSubstrate/DynamicLibraries/QuickActions.dylib"
+          rm -rf "$RUNNER_TEMP/cameron-tweaks"
 
-          echo "=== ALL STRINGS ==="
-          strings -a "$dylib"
-
-          echo "=== OBJC METADATA AROUND CATEGORIES / DND METHODS ==="
-          otool -ov "$dylib" > "$RUNNER_TEMP/qa-objc.txt"
-          python3 - "$RUNNER_TEMP/qa-objc.txt" <<'PY'
-          import sys
-          lines=open(sys.argv[1], errors='replace').read().splitlines()
-          needles=('objc_catlist','__Actions','setDoNotDisturb:','updateDND:','stateService:didReceiveDoNotDisturbStateUpdate:','CSQuickActions')
-          hits=sorted({i for i,l in enumerate(lines) if any(n in l for n in needles)})
-          blocks=[]
-          for i in hits:
-              a=max(0,i-55); b=min(len(lines),i+70)
-              if blocks and a<=blocks[-1][1]:
-                  blocks[-1]=(blocks[-1][0],max(blocks[-1][1],b))
-              else:
-                  blocks.append((a,b))
-          for a,b in blocks:
-              print(f'--- lines {a+1}-{b} ---')
-              print('\n'.join(lines[a:b]))
-          PY
-
-          echo "=== NM ALL RELEVANT ==="
-          nm -a -nm "$dylib" | grep -Ei 'logos|DND|disturb|quick|action|stateService|CSQuick' || true
-
-          echo "=== DISASSEMBLY CALLS / SYMBOLS ==="
-          otool -tvV "$dylib" | grep -Ei -C 12 'setDoNotDisturb|updateDND|stateService|CSQuick|DND|objc_msgSend' || true
+          echo "=== TRY SOURCE REPOSITORY ==="
+          if git clone --depth 1 --branch QuickActions https://git.cameronkatri.com/tweaks.git "$RUNNER_TEMP/cameron-tweaks"; then
+            echo "=== QUICKACTIONS SOURCE FILES ==="
+            find "$RUNNER_TEMP/cameron-tweaks" -maxdepth 4 -type f -print
+            echo "=== SOURCE ==="
+            find "$RUNNER_TEMP/cameron-tweaks" -type f \
+              \( -name '*.x' -o -name '*.xm' -o -name '*.m' -o -name '*.mm' -o -name '*.h' -o -name '*.swift' -o -name '*.plist' \) \
+              -maxdepth 6 -print0 | while IFS= read -r -d '' file; do
+                echo "----- $file -----"
+                cat "$file"
+              done
+          else
+            echo "Source clone failed"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
