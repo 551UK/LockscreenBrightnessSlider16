@@ -144,7 +144,8 @@ static void LSBSSetSystemBrightness(CGFloat value) {
     NSString *name = %orig;
 
     void *caller = __builtin_return_address(0);
-    Dl_info info;\n    memset(&info, 0, sizeof(info));
+    Dl_info info;
+    memset(&info, 0, sizeof(info));
 
     if (caller && dladdr(caller, &info) && info.dli_fname) {
         NSString *imagePath = [NSString stringWithUTF8String:info.dli_fname];
