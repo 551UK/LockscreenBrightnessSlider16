@@ -12,3 +12,6 @@ LockscreenBrightnessSlider16_FRAMEWORKS = UIKit Foundation QuartzCore
 LockscreenBrightnessSlider16_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+SUBPROJECTS += prefs
+include $(THEOS_MAKE_PATH)/aggregate.mk
