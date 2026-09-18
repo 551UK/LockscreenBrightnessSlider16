@@ -52,7 +52,7 @@ static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
 static void (*LSBSOriginalFocusBannerPostActivity)(id, SEL, id, BOOL) = NULL;
 
 static void LSBSFocusBannerPostActivityHook(id self, SEL _cmd, id activity, BOOL enabled) {
-    if (LSBSHideFocusBanner) {
+    if (LSBSTweakEnabled && LSBSHideFocusBanner) {
         return;
     }
 
