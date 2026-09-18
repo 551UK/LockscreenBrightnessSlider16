@@ -1,15 +1,14 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 #import <math.h>
 #import <dlfcn.h>
-#import <string.h>
 
 
 static CFStringRef const LSBSPrefsDomain = CFSTR("com.551.lockscreenbrightnessslider16");
 static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscreenbrightnessslider16/preferences.changed");
 static BOOL LSBSTweakEnabled = YES;
+static BOOL LSBSHideDNDText = YES;
 
 static void LSBSMarkViewTreeForLayout(UIView *view) {
     if (!view) return;
@@ -42,6 +41,10 @@ static void LSBSLoadPreferences(void) {
     CFPropertyListRef enabledValue = CFPreferencesCopyAppValue(CFSTR("enabled"), LSBSPrefsDomain);
     LSBSTweakEnabled = enabledValue ? [(__bridge id)enabledValue boolValue] : YES;
     if (enabledValue) CFRelease(enabledValue);
+
+    CFPropertyListRef hideDNDValue = CFPreferencesCopyAppValue(CFSTR("hideDNDText"), LSBSPrefsDomain);
+    LSBSHideDNDText = hideDNDValue ? [(__bridge id)hideDNDValue boolValue] : YES;
+    if (hideDNDValue) CFRelease(hideDNDValue);
 }
 
 static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
@@ -129,27 +132,61 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
+static void *LSBSFocusOriginalHiddenKey = &LSBSFocusOriginalHiddenKey;
+static void *LSBSFocusOriginalAlphaKey = &LSBSFocusOriginalAlphaKey;
+
 static BOOL LSBSIsFocusStatusLegibilityLabel(UIView *view) {
     if (!view) return NO;
 
     NSString *identifier = view.accessibilityIdentifier;
-    return identifier.length > 0 && [identifier hasPrefix:@"focus-text-"];
+    return [NSStringFromClass([view class]) isEqualToString:@"SBUILegibilityLabel"] &&
+           identifier.length > 0 &&
+           [identifier hasPrefix:@"focus-text-"];
 }
 
-static void LSBSHideFocusStatusLabelInTree(id viewObject) {
+static void LSBSApplyFocusStatusVisibilityInTree(id viewObject) {
     UIView *view = (UIView *)viewObject;
     if (!view) return;
 
-    if ([NSStringFromClass([view class]) isEqualToString:@"SBUILegibilityLabel"] &&
-        LSBSIsFocusStatusLegibilityLabel(view)) {
-        view.hidden = YES;
-        view.alpha = 0.0;
-        view.userInteractionEnabled = NO;
+    if (LSBSIsFocusStatusLegibilityLabel(view)) {
+        BOOL shouldHide = LSBSTweakEnabled && LSBSHideDNDText;
+        NSNumber *savedHidden = objc_getAssociatedObject(view, LSBSFocusOriginalHiddenKey);
+        NSNumber *savedAlpha = objc_getAssociatedObject(view, LSBSFocusOriginalAlphaKey);
+
+        if (shouldHide) {
+            if (!savedHidden) {
+                objc_setAssociatedObject(view,
+                                         LSBSFocusOriginalHiddenKey,
+                                         @(view.hidden),
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                objc_setAssociatedObject(view,
+                                         LSBSFocusOriginalAlphaKey,
+                                         @(view.alpha),
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+
+            view.hidden = YES;
+            view.alpha = 0.0;
+        } else {
+            if (savedHidden) {
+                view.hidden = savedHidden.boolValue;
+                view.alpha = savedAlpha ? savedAlpha.doubleValue : 1.0;
+
+                objc_setAssociatedObject(view,
+                                         LSBSFocusOriginalHiddenKey,
+                                         nil,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                objc_setAssociatedObject(view,
+                                         LSBSFocusOriginalAlphaKey,
+                                         nil,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+        }
         return;
     }
 
     for (UIView *subview in view.subviews) {
-        LSBSHideFocusStatusLabelInTree(subview);
+        LSBSApplyFocusStatusVisibilityInTree(subview);
     }
 }
 
@@ -157,12 +194,12 @@ static void LSBSHideFocusStatusLabelInTree(id viewObject) {
 
 - (void)layoutSubviews {
     %orig;
-    LSBSHideFocusStatusLabelInTree(self);
+    LSBSApplyFocusStatusVisibilityInTree(self);
 }
 
 - (void)didMoveToWindow {
     %orig;
-    LSBSHideFocusStatusLabelInTree(self);
+    LSBSApplyFocusStatusVisibilityInTree(self);
 }
 
 %end
