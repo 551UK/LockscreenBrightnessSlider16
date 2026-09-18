@@ -9,10 +9,11 @@
 - (BOOL)interpretsLocationAsContent:(CGPoint)location inView:(UIView *)view;
 @end
 
-@interface LSBSBrightnessSlider : UIControl {
+@interface LSBSBrightnessSlider : UIControl <UIGestureRecognizerDelegate> {
     UIView *_trackView;
     UIView *_fillView;
     UIView *_thumbView;
+    UIPanGestureRecognizer *_windowPanGesture;
 }
 @property (nonatomic, assign) CGFloat brightnessValue;
 @end
@@ -28,6 +29,8 @@
     self.backgroundColor = UIColor.clearColor;
     self.clipsToBounds = NO;
     self.exclusiveTouch = YES;
+    self.userInteractionEnabled = YES;
+    self.multipleTouchEnabled = NO;
     self.accessibilityLabel = @"Brightness";
     self.accessibilityTraits = UIAccessibilityTraitAdjustable;
 
