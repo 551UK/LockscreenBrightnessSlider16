@@ -8,7 +8,7 @@
 static CFStringRef const LSBSPrefsDomain = CFSTR("com.551.lockscreenbrightnessslider16");
 static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscreenbrightnessslider16/preferences.changed");
 static BOOL LSBSTweakEnabled = YES;
-static BOOL LSBSHideFocusBanner = NO;
+static BOOL LSBSHideFocusBanner = YES;
 
 @interface UICoverSheetButton : UIControl
 @property (nonatomic, copy) NSString *localizedAccessoryTitle;
@@ -27,6 +27,38 @@ static BOOL LSBSIsFocusCoverSheetButton(UICoverSheetButton *button) {
     if ([className containsString:@"FocusActivity"]) return YES;
 
     return LSBSIsDoNotDisturbTitle(button.localizedAccessoryTitle);
+}
+
+
+static void (*LSBSOriginalFocusIndicatorUpdate)(id, SEL) = NULL;
+
+static void LSBSFocusIndicatorUpdateHook(id self, SEL _cmd) {
+    if (LSBSOriginalFocusIndicatorUpdate) {
+        LSBSOriginalFocusIndicatorUpdate(self, _cmd);
+    }
+
+    if (LSBSHideFocusBanner && [self respondsToSelector:@selector(setLocalizedAccessoryTitle:)]) {
+        ((void (*)(id, SEL, id))objc_msgSend)(self,
+                                              @selector(setLocalizedAccessoryTitle:),
+                                              @" ");
+    }
+}
+
+static void LSBSInstallCoverSheetFocusTitleHook(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dlopen("/System/Library/PrivateFrameworks/CoverSheet.framework/CoverSheet",
+               RTLD_LAZY | RTLD_GLOBAL);
+
+        Class cls = objc_getClass("CSFocusActivityIndicator");
+        SEL sel = NSSelectorFromString(@"_updateForActivity");
+        Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
+        if (!method) return;
+
+        LSBSOriginalFocusIndicatorUpdate =
+            (void (*)(id, SEL))method_getImplementation(method);
+        method_setImplementation(method, (IMP)LSBSFocusIndicatorUpdateHook);
+    });
 }
 
 static void LSBSApplyFocusTitlePreferenceToViewTree(UIView *view) {
@@ -82,8 +114,8 @@ static void LSBSLoadPreferences(void) {
     LSBSTweakEnabled = enabledValue ? [(__bridge id)enabledValue boolValue] : YES;
     if (enabledValue) CFRelease(enabledValue);
 
-    CFPropertyListRef hideFocusValue = CFPreferencesCopyAppValue(CFSTR("hideFocusBanner"), LSBSPrefsDomain);
-    LSBSHideFocusBanner = hideFocusValue ? [(__bridge id)hideFocusValue boolValue] : NO;
+    CFPropertyListRef hideFocusValue = CFPreferencesCopyAppValue(CFSTR("hideDNDText"), LSBSPrefsDomain);
+    LSBSHideFocusBanner = hideFocusValue ? [(__bridge id)hideFocusValue boolValue] : YES;
     if (hideFocusValue) CFRelease(hideFocusValue);
 }
 
@@ -100,6 +132,7 @@ __attribute__((constructor))
 static void LSBSInitialize(void) {
     @autoreleasepool {
         LSBSLoadPreferences();
+        LSBSInstallCoverSheetFocusTitleHook();
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
