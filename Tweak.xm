@@ -21,9 +21,16 @@ static void LSBSMarkViewTreeForLayout(UIView *view) {
 
 static void LSBSRefreshQuickActionsLayouts(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        for (UIWindow *window in UIApplication.sharedApplication.windows) {
-            LSBSMarkViewTreeForLayout(window);
-            [window layoutIfNeeded];
+        UIApplication *application = UIApplication.sharedApplication;
+
+        for (UIScene *scene in application.connectedScenes) {
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
+
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            for (UIWindow *window in windowScene.windows) {
+                LSBSMarkViewTreeForLayout(window);
+                [window layoutIfNeeded];
+            }
         }
     });
 }
