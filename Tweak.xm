@@ -2,6 +2,60 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <math.h>
+#import <dlfcn.h>
+
+typedef float (*LSBSBrightnessGetCurrentFn)(void);
+typedef void (*LSBSBrightnessSetFn)(float, NSInteger);
+typedef CFTypeRef (*LSBSBrightnessTransactionCreateFn)(CFAllocatorRef);
+
+static LSBSBrightnessGetCurrentFn LSBSBrightnessGetCurrent = NULL;
+static LSBSBrightnessSetFn LSBSBrightnessSet = NULL;
+static LSBSBrightnessTransactionCreateFn LSBSBrightnessTransactionCreate = NULL;
+
+static void LSBSLoadBrightnessFunctions(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_LAZY | RTLD_LOCAL);
+        if (!handle) {
+            return;
+        }
+
+        LSBSBrightnessGetCurrent = (LSBSBrightnessGetCurrentFn)dlsym(handle, "BKSDisplayBrightnessGetCurrent");
+        LSBSBrightnessSet = (LSBSBrightnessSetFn)dlsym(handle, "BKSDisplayBrightnessSet");
+        LSBSBrightnessTransactionCreate = (LSBSBrightnessTransactionCreateFn)dlsym(handle, "BKSDisplayBrightnessTransactionCreate");
+    });
+}
+
+static CGFloat LSBSGetSystemBrightness(void) {
+    LSBSLoadBrightnessFunctions();
+
+    if (LSBSBrightnessGetCurrent) {
+        return MIN(1.0, MAX(0.0, (CGFloat)LSBSBrightnessGetCurrent()));
+    }
+
+    return LSBSGetSystemBrightness();
+}
+
+static void LSBSSetSystemBrightness(CGFloat value) {
+    value = MIN(1.0, MAX(0.0, value));
+    LSBSLoadBrightnessFunctions();
+
+    if (LSBSBrightnessSet) {
+        CFTypeRef transaction = NULL;
+
+        if (LSBSBrightnessTransactionCreate) {
+            transaction = LSBSBrightnessTransactionCreate(kCFAllocatorDefault);
+        }
+
+        LSBSBrightnessSet((float)value, 1);
+
+        if (transaction) {
+            CFRelease(transaction);
+        }
+    } else {
+        LSBSSetSystemBrightness(value);
+    }
+}
 
 @interface CSQuickActionsView : UIView
 @property (nonatomic, retain) UIView *cameraButton;
@@ -55,7 +109,7 @@
     _thumbView.layer.shadowOffset = CGSizeMake(0.0, 1.0);
     [self addSubview:_thumbView];
 
-    _brightnessValue = UIScreen.mainScreen.brightness;
+    _brightnessValue = LSBSGetSystemBrightness();
     [self updateAccessibilityValue];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -118,7 +172,7 @@
 }
 
 - (void)screenBrightnessDidChange:(NSNotification *)notification {
-    self.brightnessValue = UIScreen.mainScreen.brightness;
+    self.brightnessValue = LSBSGetSystemBrightness();
 }
 
 - (void)applyPoint:(CGPoint)point {
@@ -128,7 +182,7 @@
     value = MIN(1.0, MAX(0.0, value));
 
     self.brightnessValue = value;
-    UIScreen.mainScreen.brightness = value;
+    LSBSSetSystemBrightness(value);
     [self sendActionsForControlEvents:UIControlEventValueChanged];
 }
 
@@ -218,13 +272,13 @@
 - (void)accessibilityIncrement {
     CGFloat value = MIN(1.0, self.brightnessValue + 0.05);
     self.brightnessValue = value;
-    UIScreen.mainScreen.brightness = value;
+    LSBSSetSystemBrightness(value);
 }
 
 - (void)accessibilityDecrement {
     CGFloat value = MAX(0.0, self.brightnessValue - 0.05);
     self.brightnessValue = value;
-    UIScreen.mainScreen.brightness = value;
+    LSBSSetSystemBrightness(value);
 }
 
 @end
@@ -309,7 +363,7 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
                                              sliderHeight));
 
     slider.hidden = NO;
-    slider.brightnessValue = UIScreen.mainScreen.brightness;
+    slider.brightnessValue = LSBSGetSystemBrightness();
     [slider installWindowPanIfNeeded];
 
     // Keep the slider above the quick-actions background but do not disturb the buttons.
