@@ -114,16 +114,33 @@
     self.brightnessValue = UIScreen.mainScreen.brightness;
 }
 
-- (void)applyTouch:(UITouch *)touch {
+- (void)applyPoint:(CGPoint)point {
     const CGFloat thumbRadius = 11.0;
     CGFloat usableWidth = MAX(1.0, CGRectGetWidth(self.bounds) - (thumbRadius * 2.0));
-    CGFloat x = [touch locationInView:self].x;
-    CGFloat value = (x - thumbRadius) / usableWidth;
+    CGFloat value = (point.x - thumbRadius) / usableWidth;
     value = MIN(1.0, MAX(0.0, value));
 
     self.brightnessValue = value;
     UIScreen.mainScreen.brightness = value;
     [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+
+- (void)applyTouch:(UITouch *)touch {
+    [self applyPoint:[touch locationInView:self]];
+}
+
+- (void)handleBrightnessPan:(UIPanGestureRecognizer *)gesture {
+    UIGestureRecognizerState state = gesture.state;
+    if (state == UIGestureRecognizerStateBegan ||
+        state == UIGestureRecognizerStateChanged ||
+        state == UIGestureRecognizerStateEnded) {
+        [self applyPoint:[gesture locationInView:self]];
+    }
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+        shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
 }
 
 - (BOOL)beginTracking:(UITouch *)touch withEvent:(UIEvent *)event {
@@ -259,6 +276,19 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
         CGPoint pointInSlider = [sourceView convertPoint:location toView:slider];
 
         if ([slider pointInside:pointInSlider withEvent:nil]) {
+            return YES;
+        }
+    }
+
+    return %orig;
+}
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    LSBSBrightnessSlider *slider = LSBSSliderForQuickActionsView(self, NO);
+
+    if (slider && !slider.hidden && slider.userInteractionEnabled && slider.alpha > 0.01) {
+        CGPoint pointInSlider = [self convertPoint:point toView:slider];
+        if ([slider pointInside:pointInSlider withEvent:event]) {
             return YES;
         }
     }
