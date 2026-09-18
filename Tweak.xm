@@ -128,86 +128,40 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-@interface LSBSFocusActivityProxy : NSProxy {
-    id _target;
-}
-+ (instancetype)proxyWithTarget:(id)target;
+@interface _FCActivity : NSObject
 - (NSString *)activityDisplayName;
 @end
 
-@implementation LSBSFocusActivityProxy
-
-+ (instancetype)proxyWithTarget:(id)target {
-    LSBSFocusActivityProxy *proxy = [LSBSFocusActivityProxy alloc];
-    proxy->_target = target;
-    return proxy;
-}
-
-- (NSString *)activityDisplayName {
-    return @"";
-}
-
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)selector {
-    return [_target methodSignatureForSelector:selector];
-}
-
-- (void)forwardInvocation:(NSInvocation *)invocation {
-    [invocation invokeWithTarget:_target];
-}
-
-- (BOOL)respondsToSelector:(SEL)selector {
-    return selector == @selector(activityDisplayName) || [_target respondsToSelector:selector];
-}
-
-- (Class)class {
-    return [_target class];
-}
-
-- (BOOL)isKindOfClass:(Class)aClass {
-    return [_target isKindOfClass:aClass];
-}
-
-- (BOOL)isEqual:(id)object {
-    return [_target isEqual:object];
-}
-
-- (NSUInteger)hash {
-    return [_target hash];
-}
-
-- (NSString *)description {
-    return [_target description];
-}
-
+@interface CSFocusActivityIndicator : UIControl
+- (void)_updateForActivity;
 @end
 
-static void *LSBSFocusProxyAssociationKey = &LSBSFocusProxyAssociationKey;
+static __thread BOOL LSBSInsideFocusIndicatorUpdate = NO;
 
-/*
- * Only the Lock Screen's CSFocusActivityIndicator gets a rendering proxy.
- * The real Focus object remains unchanged everywhere else. Apple still receives
- * every symbol/color/identifier/lifetime property normally; only the display
- * name returned to this one indicator is blank.
- */
+%group LSBSFocusNameHooks
+
 %hook CSFocusActivityIndicator
 
-- (void)setActivity:(id)activity {
-    if (!activity) {
-        objc_setAssociatedObject(self,
-                                 LSBSFocusProxyAssociationKey,
-                                 nil,
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        %orig(nil);
-        return;
+- (void)_updateForActivity {
+    BOOL previous = LSBSInsideFocusIndicatorUpdate;
+    LSBSInsideFocusIndicatorUpdate = YES;
+    %orig;
+    LSBSInsideFocusIndicatorUpdate = previous;
+}
+
+%end
+
+%hook _FCActivity
+
+- (NSString *)activityDisplayName {
+    if (LSBSInsideFocusIndicatorUpdate) {
+        return @"";
     }
 
-    LSBSFocusActivityProxy *proxy = [LSBSFocusActivityProxy proxyWithTarget:activity];
-    objc_setAssociatedObject(self,
-                             LSBSFocusProxyAssociationKey,
-                             proxy,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    %orig(proxy);
+    return %orig;
 }
+
+%end
 
 %end
 
@@ -579,3 +533,14 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 }
 
 %end
+
+
+%ctor {
+    @autoreleasepool {
+        dlopen("/System/Library/PrivateFrameworks/Focus.framework/Focus", RTLD_LAZY | RTLD_LOCAL);
+        dlopen("/System/Library/PrivateFrameworks/CoverSheet.framework/CoverSheet", RTLD_LAZY | RTLD_LOCAL);
+
+        %init;
+        %init(LSBSFocusNameHooks);
+    }
+}
