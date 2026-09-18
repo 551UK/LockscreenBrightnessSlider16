@@ -1,16 +1,11 @@
 # Lockscreen Brightness Slider 16
 
-Adds a compact brightness slider to the iOS 16 Lock Screen, centred between the flashlight and camera quick-action buttons.
+Adds a brightness slider between the iOS 16 Lock Screen flashlight and camera buttons, with an option to hide the DND / Focus name shown in the same area.
 
-The slider positions itself from the real quick-action button frames so the spacing stays even across supported iPhone sizes.
+## DND / Focus hook
 
-## Settings
+The text is rendered by an `SBUILegibilityLabel` inside `NCNotificationListCountIndicatorView`. The tweak hides only the label whose accessibility identifier begins with `focus-text-`.
 
-- Enable or disable the tweak.
-- Optionally hide the Do Not Disturb / Focus confirmation text that appears between the Lock Screen quick actions.
-- Open the GitHub repository from the tweak settings page.
-- Respring for troubleshooting.
-
-The DND / Focus option only hides the visual confirmation text. It does not stop Do Not Disturb or Focus from turning on.
+To restore the stock text in the source, remove the `NCNotificationListCountIndicatorView` hook and its Focus-label helper functions from `Tweak.xm`.
 
 Rootless iOS 16 / Dopamine / ElleKit.
