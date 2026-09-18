@@ -145,7 +145,8 @@ static BOOL LSBSViewIsInsideFocusIndicatorHierarchy(UIView *view) {
     return NO;
 }
 
-static void LSBSBlankFocusLabelsInViewTree(UIView *view) {
+static void LSBSBlankFocusLabelsInViewTree(id viewObject) {
+    UIView *view = (UIView *)viewObject;
     if (!view) return;
 
     if ([view isKindOfClass:[UILabel class]]) {
