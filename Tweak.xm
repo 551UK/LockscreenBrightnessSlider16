@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
-#import <objc/runtime.h>\n#import <math.h>
+#import <objc/runtime.h>
+#import <math.h>
 
 @interface CSQuickActionsView : UIView
 @property (nonatomic, retain) UIView *cameraButton;
