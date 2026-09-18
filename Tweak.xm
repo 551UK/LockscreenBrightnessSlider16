@@ -289,17 +289,34 @@ static void LSBSDumpLockScreenHierarchy(void) {
         }
     }
 
-    NSString *path = @"/var/mobile/Library/Preferences/com.551.lockscreenbrightnessslider16-focusdump.txt";
-    NSError *error = nil;
-    BOOL ok = [output writeToFile:path
-                       atomically:YES
-                         encoding:NSUTF8StringEncoding
-                            error:&error];
+    NSArray<NSString *> *paths = @[
+        @"/var/mobile/lsbs-focusdump.txt",
+        @"/var/mobile/Documents/lsbs-focusdump.txt",
+        [NSTemporaryDirectory() stringByAppendingPathComponent:@"lsbs-focusdump.txt"]
+    ];
 
-    NSLog(@"[LSBS] Focus diagnostic dump %@: %@%@",
-          ok ? @"written" : @"FAILED",
-          path,
-          error ? [NSString stringWithFormat:@" (%@)", error] : @"");
+    BOOL wrote = NO;
+    NSMutableArray<NSString *> *failures = [NSMutableArray array];
+
+    for (NSString *path in paths) {
+        NSError *error = nil;
+        BOOL ok = [output writeToFile:path
+                           atomically:NO
+                             encoding:NSUTF8StringEncoding
+                                error:&error];
+
+        if (ok) {
+            NSLog(@"[LSBS] Focus diagnostic dump written: %@", path);
+            wrote = YES;
+            break;
+        }
+
+        [failures addObject:[NSString stringWithFormat:@"%@ => %@", path, error ?: @"unknown error"]];
+    }
+
+    if (!wrote) {
+        NSLog(@"[LSBS] Focus diagnostic dump FAILED at all paths: %@", failures);
+    }
 }
 
 static BOOL LSBSDiagnosticDumpScheduled = NO;
@@ -308,10 +325,17 @@ static void LSBSScheduleLockScreenHierarchyDump(void) {
     if (LSBSDiagnosticDumpScheduled) return;
     LSBSDiagnosticDumpScheduled = YES;
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        LSBSDumpLockScreenHierarchy();
-    });
+    for (NSInteger attempt = 0; attempt < 4; attempt++) {
+        NSTimeInterval delay = 1.0 + (attempt * 2.0);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LSBSDumpLockScreenHierarchy();
+
+            if (attempt == 3) {
+                LSBSDiagnosticDumpScheduled = NO;
+            }
+        });
+    }
 }
 
 
@@ -688,5 +712,10 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 %ctor {
     @autoreleasepool {
         %init;
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            LSBSScheduleLockScreenHierarchyDump();
+        });
     }
 }
