@@ -47,7 +47,7 @@ static BOOL LSBSSpawnTool(const char *tool, char * const argv[]) {
     NSMutableArray *specifiers = [NSMutableArray array];
 
     PSSpecifier *mainGroup = [PSSpecifier groupSpecifierWithName:@"Lockscreen Brightness Slider 16"];
-    [mainGroup setProperty:@"Adds a brightness slider between the Lock Screen flashlight and camera quick actions." forKey:@"footerText"];
+    [mainGroup setProperty:@"Adds a Lock Screen brightness slider with optional DND / Focus text hiding." forKey:@"footerText"];
     [specifiers addObject:mainGroup];
 
     [specifiers addObject:[self preferenceSpecifierNamed:@"Enable Tweak"
@@ -56,10 +56,10 @@ static BOOL LSBSSpawnTool(const char *tool, char * const argv[]) {
                                                     cell:PSSwitchCell]];
 
     PSSpecifier *focusGroup = [PSSpecifier groupSpecifierWithName:@"Lock Screen DND Text"];
-    [focusGroup setProperty:@"Hides the temporary “Do Not Disturb” Lock Screen indicator shown between the flashlight and camera quick actions. Do Not Disturb itself still turns on and off normally." forKey:@"footerText"];
+    [focusGroup setProperty:@"Hides the DND / Focus name shown between the Lock Screen quick actions. The master Enable Tweak switch controls both features." forKey:@"footerText"];
     [specifiers addObject:focusGroup];
 
-    [specifiers addObject:[self preferenceSpecifierNamed:@"Hide Do Not Disturb Text"
+    [specifiers addObject:[self preferenceSpecifierNamed:@"Hide DND / Focus Text"
                                                      key:@"hideDNDText"
                                             defaultValue:@YES
                                                     cell:PSSwitchCell]];
