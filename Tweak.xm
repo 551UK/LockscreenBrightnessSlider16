@@ -33,7 +33,7 @@ static CGFloat LSBSGetSystemBrightness(void) {
         return MIN(1.0, MAX(0.0, (CGFloat)LSBSBrightnessGetCurrent()));
     }
 
-    return LSBSGetSystemBrightness();
+    return UIScreen.mainScreen.brightness;
 }
 
 static void LSBSSetSystemBrightness(CGFloat value) {
@@ -53,7 +53,7 @@ static void LSBSSetSystemBrightness(CGFloat value) {
             CFRelease(transaction);
         }
     } else {
-        LSBSSetSystemBrightness(value);
+        UIScreen.mainScreen.brightness = value;
     }
 }
 
