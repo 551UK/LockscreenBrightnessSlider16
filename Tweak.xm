@@ -11,83 +11,6 @@ static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscree
 static BOOL LSBSTweakEnabled = YES;
 static BOOL LSBSHideFocusBanner = YES;
 
-@protocol LSBSFCActivityDescribing <NSObject>
-- (NSString *)activityDisplayName;
-- (NSString *)activityIdentifier;
-@end
-
-@interface LSBSFocusEnablementIndicatorBannerPresentable : NSObject
-- (id<LSBSFCActivityDescribing>)activityDescription;
-@end
-
-static BOOL LSBSIsDoNotDisturbActivity(id<LSBSFCActivityDescribing> activity) {
-    if (!activity) return NO;
-
-    NSString *identifier = nil;
-    NSString *displayName = nil;
-
-    if ([activity respondsToSelector:@selector(activityIdentifier)]) {
-        identifier = [activity activityIdentifier];
-    }
-
-    if ([activity respondsToSelector:@selector(activityDisplayName)]) {
-        displayName = [activity activityDisplayName];
-    }
-
-    return [identifier isEqualToString:@"com.apple.donotdisturb.mode.default"] ||
-           [displayName isEqualToString:@"Do Not Disturb"];
-}
-
-/*
- * Do not block FCUIFocusEnablementIndicatorBannerManager::postActivity:enabled:.
- * That method participates in both presentation and dismissal/update handling,
- * so dropping DND calls can strand an already-visible banner.
- *
- * FocusUI builds the visible activity name ("Do Not Disturb") in
- * FCUIFocusEnablementIndicatorBannerPresentable::primaryTemplateItemProvider.
- * Returning nil only for that one text provider removes the label while
- * preserving BannerKit's normal timers, appearance and dismissal lifecycle.
- */
-static id (*LSBSOriginalFocusPrimaryTemplateItemProvider)(id, SEL) = NULL;
-
-static id LSBSFocusPrimaryTemplateItemProviderHook(id self, SEL _cmd) {
-    if (LSBSHideFocusBanner) {
-        id<LSBSFCActivityDescribing> activity = nil;
-        if ([self respondsToSelector:@selector(activityDescription)]) {
-            activity = [(LSBSFocusEnablementIndicatorBannerPresentable *)self activityDescription];
-        }
-
-        if (LSBSIsDoNotDisturbActivity(activity)) {
-            return nil;
-        }
-    }
-
-    return LSBSOriginalFocusPrimaryTemplateItemProvider
-        ? LSBSOriginalFocusPrimaryTemplateItemProvider(self, _cmd)
-        : nil;
-}
-
-static void LSBSInstallFocusBannerTextHook(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        void *handle = dlopen("/System/Library/PrivateFrameworks/FocusUI.framework/FocusUI",
-                              RTLD_LAZY | RTLD_GLOBAL);
-        if (!handle) return;
-
-        Class cls = objc_getClass("FCUIFocusEnablementIndicatorBannerPresentable");
-        SEL selector = NSSelectorFromString(@"primaryTemplateItemProvider");
-        Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
-        if (!method) return;
-
-        IMP current = method_getImplementation(method);
-        if (current == (IMP)LSBSFocusPrimaryTemplateItemProviderHook) return;
-
-        LSBSOriginalFocusPrimaryTemplateItemProvider =
-            (id (*)(id, SEL))current;
-        method_setImplementation(method, (IMP)LSBSFocusPrimaryTemplateItemProviderHook);
-    });
-}
-
 static void LSBSMarkViewTreeForLayout(UIView *view) {
     if (!view) return;
     [view setNeedsLayout];
@@ -138,7 +61,6 @@ __attribute__((constructor))
 static void LSBSInitialize(void) {
     @autoreleasepool {
         LSBSLoadPreferences();
-        LSBSInstallFocusBannerTextHook();
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
@@ -208,6 +130,101 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 @property (nonatomic, retain) UIView *flashlightButton;
 - (BOOL)interpretsLocationAsContent:(CGPoint)location inView:(UIView *)view;
 @end
+
+
+static CSQuickActionsView *LSBSFindQuickActionsView(UIView *view) {
+    if (!view) return nil;
+
+    Class quickActionsClass = NSClassFromString(@"CSQuickActionsView");
+    if (quickActionsClass && [view isKindOfClass:quickActionsClass]) {
+        return (CSQuickActionsView *)view;
+    }
+
+    for (UIView *subview in view.subviews) {
+        CSQuickActionsView *found = LSBSFindQuickActionsView(subview);
+        if (found) return found;
+    }
+
+    return nil;
+}
+
+static BOOL LSBSLabelIsDNDText(UILabel *label) {
+    if (!label) return NO;
+
+    NSString *plainText = label.text;
+    if ([plainText isEqualToString:@"Do Not Disturb"]) return YES;
+
+    NSString *attributedText = label.attributedText.string;
+    return [attributedText isEqualToString:@"Do Not Disturb"];
+}
+
+static void LSBSHideDNDQuickActionsLabelIfNeeded(UILabel *label) {
+    if (!LSBSHideFocusBanner || !LSBSLabelIsDNDText(label)) return;
+
+    UIWindow *window = label.window;
+    if (!window) return;
+
+    CSQuickActionsView *quickActions = LSBSFindQuickActionsView(window);
+    if (!quickActions) return;
+
+    UIView *flashlight = quickActions.flashlightButton;
+    UIView *camera = quickActions.cameraButton;
+    if (!flashlight || !camera) return;
+
+    CGRect flashlightRect = [flashlight convertRect:flashlight.bounds toView:quickActions];
+    CGRect cameraRect = [camera convertRect:camera.bounds toView:quickActions];
+
+    CGFloat leftCenter = MIN(CGRectGetMidX(flashlightRect), CGRectGetMidX(cameraRect));
+    CGFloat rightCenter = MAX(CGRectGetMidX(flashlightRect), CGRectGetMidX(cameraRect));
+    CGFloat buttonsCenterY = (CGRectGetMidY(flashlightRect) + CGRectGetMidY(cameraRect)) * 0.5;
+
+    CGPoint centerInWindow = [label.superview convertPoint:label.center toView:window];
+    CGPoint centerInQuickActions = [window convertPoint:centerInWindow toView:quickActions];
+
+    BOOL horizontallyBetweenButtons =
+        centerInQuickActions.x > leftCenter &&
+        centerInQuickActions.x < rightCenter;
+
+    BOOL verticallyInQuickActionsBand =
+        fabs(centerInQuickActions.y - buttonsCenterY) < 110.0;
+
+    if (horizontallyBetweenButtons && verticallyInQuickActionsBand) {
+        label.hidden = YES;
+        label.alpha = 0.0;
+    }
+}
+
+%hook UILabel
+
+- (void)setText:(NSString *)text {
+    %orig;
+    if ([text isEqualToString:@"Do Not Disturb"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LSBSHideDNDQuickActionsLabelIfNeeded(self);
+        });
+    }
+}
+
+- (void)setAttributedText:(NSAttributedString *)attributedText {
+    %orig;
+    if ([attributedText.string isEqualToString:@"Do Not Disturb"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            LSBSHideDNDQuickActionsLabelIfNeeded(self);
+        });
+    }
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    LSBSHideDNDQuickActionsLabelIfNeeded(self);
+}
+
+- (void)layoutSubviews {
+    %orig;
+    LSBSHideDNDQuickActionsLabelIfNeeded(self);
+}
+
+%end
 
 @interface LSBSBrightnessSlider : UIControl <UIGestureRecognizerDelegate> {
     UIView *_trackView;
