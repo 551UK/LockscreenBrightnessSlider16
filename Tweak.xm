@@ -4,6 +4,98 @@
 #import <math.h>
 #import <dlfcn.h>
 
+
+static CFStringRef const LSBSPrefsDomain = CFSTR("com.551.lockscreenbrightnessslider16");
+static CFStringRef const LSBSPrefsChangedNotification = CFSTR("com.551.lockscreenbrightnessslider16/preferences.changed");
+static BOOL LSBSTweakEnabled = YES;
+static BOOL LSBSHideFocusBanner = NO;
+
+static void LSBSMarkViewTreeForLayout(UIView *view) {
+    if (!view) return;
+
+    [view setNeedsLayout];
+    for (UIView *subview in view.subviews) {
+        LSBSMarkViewTreeForLayout(subview);
+    }
+}
+
+static void LSBSRefreshQuickActionsLayouts(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (UIWindow *window in UIApplication.sharedApplication.windows) {
+            LSBSMarkViewTreeForLayout(window);
+            [window layoutIfNeeded];
+        }
+    });
+}
+
+static void LSBSLoadPreferences(void) {
+    CFPreferencesAppSynchronize(LSBSPrefsDomain);
+
+    CFPropertyListRef enabledValue = CFPreferencesCopyAppValue(CFSTR("enabled"), LSBSPrefsDomain);
+    LSBSTweakEnabled = enabledValue ? [(__bridge id)enabledValue boolValue] : YES;
+    if (enabledValue) CFRelease(enabledValue);
+
+    CFPropertyListRef hideFocusValue = CFPreferencesCopyAppValue(CFSTR("hideFocusBanner"), LSBSPrefsDomain);
+    LSBSHideFocusBanner = hideFocusValue ? [(__bridge id)hideFocusValue boolValue] : NO;
+    if (hideFocusValue) CFRelease(hideFocusValue);
+}
+
+static void LSBSPrefsChangedCallback(CFNotificationCenterRef center,
+                                     void *observer,
+                                     CFStringRef name,
+                                     const void *object,
+                                     CFDictionaryRef userInfo) {
+    LSBSLoadPreferences();
+    LSBSRefreshQuickActionsLayouts();
+}
+
+static void (*LSBSOriginalFocusBannerPostActivity)(id, SEL, id, BOOL) = NULL;
+
+static void LSBSFocusBannerPostActivityHook(id self, SEL _cmd, id activity, BOOL enabled) {
+    if (LSBSHideFocusBanner) {
+        return;
+    }
+
+    if (LSBSOriginalFocusBannerPostActivity) {
+        LSBSOriginalFocusBannerPostActivity(self, _cmd, activity, enabled);
+    }
+}
+
+static void LSBSInstallFocusBannerHook(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dlopen("/System/Library/PrivateFrameworks/FocusUI.framework/FocusUI", RTLD_LAZY | RTLD_GLOBAL);
+
+        Class managerClass = objc_getClass("FCUIFocusEnablementIndicatorBannerManager");
+        SEL selector = NSSelectorFromString(@"postActivity:enabled:");
+        if (!managerClass || !selector) return;
+
+        Method method = class_getInstanceMethod(managerClass, selector);
+        if (!method) return;
+
+        LSBSOriginalFocusBannerPostActivity =
+            (void (*)(id, SEL, id, BOOL))method_getImplementation(method);
+        method_setImplementation(method, (IMP)LSBSFocusBannerPostActivityHook);
+    });
+}
+
+__attribute__((constructor))
+static void LSBSInitialize(void) {
+    @autoreleasepool {
+        LSBSLoadPreferences();
+
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        LSBSPrefsChangedCallback,
+                                        LSBSPrefsChangedNotification,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+
+        LSBSInstallFocusBannerHook();
+    }
+}
+
+
 typedef float (*LSBSBrightnessGetCurrentFn)(void);
 typedef void (*LSBSBrightnessSetFn)(float, NSInteger);
 typedef CFTypeRef (*LSBSBrightnessTransactionCreateFn)(CFAllocatorRef);
@@ -309,7 +401,12 @@ static CGRect LSBSRectForViewInsideHost(UIView *child, UIView *host) {
 static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
     UIView *flashlight = host.flashlightButton;
     UIView *camera = host.cameraButton;
-    LSBSBrightnessSlider *slider = LSBSSliderForQuickActionsView(host, YES);
+    LSBSBrightnessSlider *slider = LSBSSliderForQuickActionsView(host, LSBSTweakEnabled);
+
+    if (!LSBSTweakEnabled) {
+        if (slider) slider.hidden = YES;
+        return;
+    }
 
     if (!flashlight || !camera ||
         flashlight.hidden || camera.hidden ||
