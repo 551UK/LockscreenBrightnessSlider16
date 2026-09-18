@@ -66,7 +66,7 @@ jobs:
             gh release create "$current" packages/*.deb \
               --target "$GITHUB_SHA" \
               --title "Lockscreen Brightness Slider 16 ${version}" \
-              --notes "Rootless iOS 16 Dopamine build."
+              --notes "Rootless iOS 16 Dopamine build with brightness slider and optional DND / Focus text hiding."
           fi
 
           gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
