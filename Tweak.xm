@@ -321,21 +321,35 @@ static void LSBSDumpLockScreenHierarchy(void) {
 
 static BOOL LSBSDiagnosticDumpScheduled = NO;
 
-static void LSBSScheduleLockScreenHierarchyDump(void) {
-    if (LSBSDiagnosticDumpScheduled) return;
+static BOOL LSBSQuickActionsAreActuallyVisible(CSQuickActionsView *view) {
+    if (!view || !view.window || view.window.hidden || view.hidden || view.alpha < 0.01) {
+        return NO;
+    }
+
+    CGRect frameInWindow = [view convertRect:view.bounds toView:view.window];
+    CGRect visibleBounds = view.window.bounds;
+    CGRect intersection = CGRectIntersection(frameInWindow, visibleBounds);
+
+    return !CGRectIsNull(intersection) &&
+           !CGRectIsEmpty(intersection) &&
+           CGRectGetHeight(intersection) > (CGRectGetHeight(visibleBounds) * 0.5);
+}
+
+static void LSBSScheduleLockScreenHierarchyDumpForVisibleQuickActions(CSQuickActionsView *view) {
+    if (!LSBSQuickActionsAreActuallyVisible(view) || LSBSDiagnosticDumpScheduled) {
+        return;
+    }
+
     LSBSDiagnosticDumpScheduled = YES;
 
-    for (NSInteger attempt = 0; attempt < 4; attempt++) {
-        NSTimeInterval delay = 1.0 + (attempt * 2.0);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (LSBSQuickActionsAreActuallyVisible(view)) {
             LSBSDumpLockScreenHierarchy();
+        }
 
-            if (attempt == 3) {
-                LSBSDiagnosticDumpScheduled = NO;
-            }
-        });
-    }
+        LSBSDiagnosticDumpScheduled = NO;
+    });
 }
 
 
@@ -658,7 +672,7 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 - (void)layoutSubviews {
     %orig;
     LSBSLayoutBrightnessSlider(self);
-    LSBSScheduleLockScreenHierarchyDump();
+    LSBSScheduleLockScreenHierarchyDumpForVisibleQuickActions(self);
 }
 
 - (BOOL)interpretsLocationAsContent:(CGPoint)location inView:(UIView *)view {
@@ -712,10 +726,5 @@ static void LSBSLayoutBrightnessSlider(CSQuickActionsView *host) {
 %ctor {
     @autoreleasepool {
         %init;
-
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            LSBSScheduleLockScreenHierarchyDump();
-        });
     }
 }
