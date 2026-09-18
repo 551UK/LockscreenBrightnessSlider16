@@ -1,6 +1,6 @@
 Package: com.551.lockscreenbrightnessslider16
 Name: Lockscreen Brightness Slider 16
-Version: 1.0.22
+Version: 1.0.23
 Architecture: iphoneos-arm64
 Description: Adds an evenly positioned brightness slider between the Lock Screen quick-action buttons.
 Maintainer: 551
