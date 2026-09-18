@@ -1,6 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
-#import <objc/runtime.h>
+#import <objc/runtime.h>\n#import <math.h>
 
 @interface CSQuickActionsView : UIView
 @property (nonatomic, retain) UIView *cameraButton;
@@ -139,11 +139,6 @@
     if (touch) {
         [self applyTouch:touch];
     }
-    [super endTracking:touch withEvent:event];
-}
-
-- (void)cancelTrackingWithEvent:(UIEvent *)event {
-    [super cancelTrackingWithEvent:event];
 }
 
 - (void)accessibilityIncrement {
