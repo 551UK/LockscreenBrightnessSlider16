@@ -128,42 +128,33 @@ static void LSBSSetSystemBrightness(CGFloat value) {
 
 
 
-@interface UICoverSheetButton : UIControl
-@property (nonatomic, copy) NSString *localizedAccessoryTitle;
+@interface _FCActivity : NSObject
+- (NSString *)activityDisplayName;
 @end
 
 /*
- * CSFocusActivityIndicator inherits localizedAccessoryTitle from
- * UICoverSheetButton. Hook the class that actually implements the setter,
- * but change text only when the receiver is the Focus indicator itself.
- * No Focus state or notification lifecycle is touched.
+ * The Lock Screen Focus indicator obtains its visible text directly from
+ * _FCActivity::activityDisplayName. Return an empty display name only when
+ * CoverSheet is the caller. This leaves the Focus object/state untouched and
+ * preserves the real name for FocusUI/Control Centre and other processes.
  */
-%hook UICoverSheetButton
+%hook _FCActivity
 
-- (void)setLocalizedAccessoryTitle:(NSString *)title {
-    Class focusIndicatorClass = NSClassFromString(@"CSFocusActivityIndicator");
+- (NSString *)activityDisplayName {
+    NSString *name = %orig;
 
-    if (focusIndicatorClass &&
-        [self isKindOfClass:focusIndicatorClass] &&
-        [title isEqualToString:@"Do Not Disturb"]) {
-        %orig(@"");
-        return;
+    void *caller = __builtin_return_address(0);
+    Dl_info info = {0};
+
+    if (caller && dladdr(caller, &info) && info.dli_fname) {
+        NSString *imagePath = [NSString stringWithUTF8String:info.dli_fname];
+
+        if ([imagePath.lastPathComponent isEqualToString:@"CoverSheet"]) {
+            return @"";
+        }
     }
 
-    %orig;
-}
-
-- (NSString *)localizedAccessoryTitle {
-    NSString *title = %orig;
-    Class focusIndicatorClass = NSClassFromString(@"CSFocusActivityIndicator");
-
-    if (focusIndicatorClass &&
-        [self isKindOfClass:focusIndicatorClass] &&
-        [title isEqualToString:@"Do Not Disturb"]) {
-        return @"";
-    }
-
-    return title;
+    return name;
 }
 
 %end
