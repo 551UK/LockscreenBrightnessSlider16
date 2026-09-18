@@ -1,0 +1,75 @@
+name: Build rootless DEB
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lockscreen-brightness-slider-16-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Theos
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+
+      - name: Build rootless package
+        run: |
+          chmod 755 layout/DEBIAN/postinst
+          make clean package FINALPACKAGE=1
+
+      - name: Validate package
+        run: |
+          set -euo pipefail
+          brew install dpkg
+
+          debs=(packages/*.deb)
+          test "${#debs[@]}" -eq 1
+          test "$(dpkg-deb -f "${debs[0]}" Architecture)" = iphoneos-arm64
+          test "$(dpkg-deb -f "${debs[0]}" Package)" = com.551.lockscreenbrightnessslider16
+
+          dpkg-deb -x "${debs[0]}" "$RUNNER_TEMP/lsbs-check"
+          binary="$RUNNER_TEMP/lsbs-check/var/jb/Library/MobileSubstrate/DynamicLibraries/LockscreenBrightnessSlider16.dylib"
+
+          test -s "$binary"
+          xcrun lipo "$binary" -verify_arch arm64 arm64e
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LockscreenBrightnessSlider16-rootless
+          path: packages/*.deb
+          if-no-files-found: error
+
+      - name: Publish latest DEB only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^Version: //p' control)"
+          current="v${version}"
+
+          if gh release view "$current" >/dev/null 2>&1; then
+            gh release upload "$current" packages/*.deb --clobber
+          else
+            gh release create "$current" packages/*.deb \
+              --target "$GITHUB_SHA" \
+              --title "Lockscreen Brightness Slider 16 ${version}" \
+              --notes "Rootless iOS 16 Dopamine build."
+          fi
+
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
+            [ "$tag" = "$current" ] && continue
+            gh release delete "$tag" --cleanup-tag -y
+          done
